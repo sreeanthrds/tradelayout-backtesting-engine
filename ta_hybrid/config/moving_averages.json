@@ -1,0 +1,235 @@
+{
+    "category": "Moving Averages",
+    "indicators": [
+        {
+            "name": "SMA",
+            "function_name": "sma",
+            "display_name": "Simple Moving Average",
+            "description": "Calculates the average price over a specified period",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods to average"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["SMA"]
+        },
+        {
+            "name": "EMA",
+            "function_name": "ema",
+            "display_name": "Exponential Moving Average",
+            "description": "Weighted moving average giving more importance to recent prices",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 21,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["EMA"]
+        },
+        {
+            "name": "WMA",
+            "function_name": "wma",
+            "display_name": "Weighted Moving Average",
+            "description": "Moving average with linearly decreasing weights",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["WMA"]
+        },
+        {
+            "name": "DEMA",
+            "function_name": "dema",
+            "display_name": "Double Exponential Moving Average",
+            "description": "Double smoothed EMA with reduced lag",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["DEMA"]
+        },
+        {
+            "name": "TEMA",
+            "function_name": "tema",
+            "display_name": "Triple Exponential Moving Average",
+            "description": "Triple smoothed EMA with minimal lag",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["TEMA"]
+        },
+        {
+            "name": "HMA",
+            "function_name": "hma",
+            "display_name": "Hull Moving Average",
+            "description": "Improved moving average reducing lag while maintaining smoothness",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 16,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["HMA"]
+        },
+        {
+            "name": "ZLEMA",
+            "function_name": "zlema",
+            "display_name": "Zero Lag EMA",
+            "description": "EMA with zero lag",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["ZLEMA"]
+        },
+        {
+            "name": "VWMA",
+            "function_name": "vwma",
+            "display_name": "Volume Weighted Moving Average",
+            "description": "Moving average weighted by volume",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["VWMA"]
+        },
+        {
+            "name": "KAMA",
+            "function_name": "kama",
+            "display_name": "Kaufman Adaptive Moving Average",
+            "description": "Adaptive moving average that adjusts to market volatility",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 2,
+                    "description": "Fast efficiency factor"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 30,
+                    "description": "Slow efficiency factor"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["KAMA"]
+        }
+    ]
+}

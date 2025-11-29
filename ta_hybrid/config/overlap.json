@@ -1,0 +1,399 @@
+{
+    "category": "Overlap Studies",
+    "indicators": [
+        {
+            "name": "ALMA",
+            "function_name": "alma",
+            "display_name": "Arnaud Legoux Moving Average",
+            "description": "Gaussian-weighted moving average with reduced lag",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 9,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "offset",
+                    "type": "number",
+                    "label": "Offset",
+                    "default": 0.85,
+                    "description": "Gaussian offset"
+                },
+                {
+                    "name": "sigma",
+                    "type": "number",
+                    "label": "Sigma",
+                    "default": 6,
+                    "description": "Gaussian standard deviation"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["ALMA"]
+        },
+        {
+            "name": "FWMA",
+            "function_name": "fwma",
+            "display_name": "Fibonacci Weighted Moving Average",
+            "description": "Moving average weighted by Fibonacci sequence",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["FWMA"]
+        },
+        {
+            "name": "JMA",
+            "function_name": "jma",
+            "display_name": "Jurik Moving Average",
+            "description": "Low-lag moving average",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 7,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "phase",
+                    "type": "number",
+                    "label": "Phase",
+                    "default": 0,
+                    "description": "Phase parameter"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["JMA"]
+        },
+        {
+            "name": "LINREG",
+            "function_name": "linreg",
+            "display_name": "Linear Regression",
+            "description": "Linear regression line",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["LR"]
+        },
+        {
+            "name": "MIDPOINT",
+            "function_name": "midpoint",
+            "display_name": "Midpoint",
+            "description": "Midpoint of highest and lowest values",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["MIDPOINT"]
+        },
+        {
+            "name": "MIDPRICE",
+            "function_name": "midprice",
+            "display_name": "Midprice",
+            "description": "Midpoint of high and low over period",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["MIDPRICE"]
+        },
+        {
+            "name": "PWMA",
+            "function_name": "pwma",
+            "display_name": "Pascal's Weighted Moving Average",
+            "description": "Moving average weighted by Pascal's triangle",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["PWMA"]
+        },
+        {
+            "name": "RMA",
+            "function_name": "rma",
+            "display_name": "Wilders Moving Average",
+            "description": "Wilder's smoothing (modified EMA)",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["RMA"]
+        },
+        {
+            "name": "SINWMA",
+            "function_name": "sinwma",
+            "display_name": "Sine Weighted Moving Average",
+            "description": "Moving average weighted by sine function",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["SINWMA"]
+        },
+        {
+            "name": "SWMA",
+            "function_name": "swma",
+            "display_name": "Symmetric Weighted Moving Average",
+            "description": "Symmetrically weighted moving average",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["SWMA"]
+        },
+        {
+            "name": "T3",
+            "function_name": "t3",
+            "display_name": "T3 Moving Average",
+            "description": "Triple exponential moving average (Tillson)",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "a",
+                    "type": "number",
+                    "label": "Volume Factor",
+                    "default": 0.7,
+                    "description": "Volume factor"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["T3"]
+        },
+        {
+            "name": "TRIMA",
+            "function_name": "trima",
+            "display_name": "Triangular Moving Average",
+            "description": "Double-smoothed simple moving average",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["TRIMA"]
+        },
+        {
+            "name": "VIDYA",
+            "function_name": "vidya",
+            "display_name": "Variable Index Dynamic Average",
+            "description": "Adaptive moving average using CMO",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["VIDYA"]
+        },
+        {
+            "name": "ZLMA",
+            "function_name": "zlma",
+            "display_name": "Zero Lag Moving Average",
+            "description": "Zero lag moving average",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["ZLMA"]
+        },
+        {
+            "name": "HWMA",
+            "function_name": "hwma",
+            "display_name": "Holt-Winter Moving Average",
+            "description": "Holt-Winter exponential smoothing",
+            "parameters": [
+                {
+                    "name": "na",
+                    "type": "number",
+                    "label": "Alpha",
+                    "default": 0.2,
+                    "description": "Alpha parameter"
+                },
+                {
+                    "name": "nb",
+                    "type": "number",
+                    "label": "Beta",
+                    "default": 0.1,
+                    "description": "Beta parameter"
+                },
+                {
+                    "name": "nc",
+                    "type": "number",
+                    "label": "Gamma",
+                    "default": 0.1,
+                    "description": "Gamma parameter"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["HWMA"]
+        }
+    ]
+}

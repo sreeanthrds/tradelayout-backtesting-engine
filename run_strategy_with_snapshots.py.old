@@ -1,0 +1,496 @@
+"""
+Run strategy with detailed snapshots for first 3 seconds.
+Shows: Cache state, Node statuses, Flags, and execution flow.
+"""
+
+import sys
+import os
+from datetime import datetime, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+os.environ['SUPABASE_URL'] = 'https://oonepfqgzpdssfzvokgk.supabase.co'
+os.environ['SUPABASE_SERVICE_ROLE_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vbmVwZnFnenBkc3NmenZva2drIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDE5OTkxNCwiZXhwIjoyMDY1Nzc1OTE0fQ.qmUNhAh3oVhPW2lcAkw7E2Z19MenEIoWCBXCR9Hq6Kg'
+
+from src.adapters.supabase_adapter import SupabaseStrategyAdapter
+from src.backtesting.backtest_config import BacktestConfig
+from src.backtesting.centralized_backtest_engine import CentralizedBacktestEngine
+
+print("\n" + "="*100)
+print("STRATEGY NODE-BY-NODE TESTING - FIRST 3 SECONDS")
+print("="*100 + "\n")
+
+# Configuration
+strategy_id = '4a7a1a31-e209-4b23-891a-3899fb8e4c28'
+user_id = 'user_2yfjTGEKjL7XkklQyBaMP6SN2Lc'
+backtest_date = datetime(2024, 10, 1)
+
+print(f"Strategy ID : {strategy_id}")
+print(f"User ID     : {user_id}")
+print(f"Date        : {backtest_date.date()}")
+print(f"Duration    : First 10 seconds (09:15:00 - 09:15:10)")
+
+# ==============================================================================
+# STEP 1: Fetch and Patch Strategy Configuration
+# ==============================================================================
+
+print("\n" + "-"*100)
+print("STEP 1: FETCHING STRATEGY")
+print("-"*100)
+
+adapter = SupabaseStrategyAdapter()
+
+try:
+    # Fetch raw strategy
+    response = adapter.supabase.table('strategies').select('*').eq('id', strategy_id).execute()
+    
+    if not response.data:
+        print(f"❌ Strategy not found!")
+        sys.exit(1)
+    
+    raw_strategy = response.data[0]
+    print(f"✅ Strategy fetched: {raw_strategy.get('name')}")
+    
+    # Get configuration
+    import json
+    config = raw_strategy.get('strategy') or raw_strategy.get('config')
+    
+    if isinstance(config, str):
+        config = json.loads(config)
+    
+    # Show original config
+    print(f"\n📋 Original Configuration:")
+    print(f"   Nodes: {len(config.get('nodes', []))}")
+    print(f"   Edges: {len(config.get('edges', []))}")
+    print(f"   Trading Config: {bool(config.get('tradingInstrumentConfig'))}")
+    
+    # Patch configuration to add minimal instrument setup
+    if not config.get('tradingInstrumentConfig'):
+        print(f"\n🔧 Patching strategy with minimal instrument configuration...")
+        
+        config['tradingInstrumentConfig'] = {
+            'symbol': 'NIFTY',
+            'timeframes': [
+                {'id': 'tf-1m', 'timeframe': '1m'},
+                {'id': 'tf-3m', 'timeframe': '3m'},
+                {'id': 'tf-5m', 'timeframe': '5m'}
+            ]
+        }
+        
+        print(f"   ✅ Added trading instrument: NIFTY (1m, 3m, 5m)")
+    
+    # Save patched config back to raw_strategy
+    raw_strategy['strategy'] = config
+    
+    print(f"\n✅ Strategy ready for testing")
+    
+except Exception as e:
+    print(f"❌ Error fetching strategy: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+
+# ==============================================================================
+# STEP 2: Create Custom Engine with Snapshot Tracking
+# ==============================================================================
+
+print("\n" + "-"*100)
+print("STEP 2: INITIALIZING BACKTEST ENGINE")
+print("-"*100)
+
+class SnapshotTrackingEngine(CentralizedBacktestEngine):
+    """Extended engine that captures snapshots during execution."""
+    
+    def __init__(self, config):
+        super().__init__(config)
+        self.snapshots = []
+        self.start_time = None
+        self.stop_after_seconds = 10  # Extended to 10 seconds
+        
+    def _process_ticks_centralized(self, ticks):
+        """Override to capture snapshots every second."""
+        from collections import defaultdict
+        
+        # Group ticks by second
+        ticks_by_second = defaultdict(list)
+        
+        for tick in ticks:
+            tick_timestamp = tick['timestamp']
+            second_key = tick_timestamp.replace(microsecond=0)
+            ticks_by_second[second_key].append(tick)
+        
+        sorted_seconds = sorted(ticks_by_second.keys())
+        
+        if not sorted_seconds:
+            print(f"⚠️  No ticks to process")
+            return
+        
+        self.start_time = sorted_seconds[0]
+        stop_time = self.start_time + timedelta(seconds=self.stop_after_seconds)
+        
+        print(f"\n⏱️  Processing from {self.start_time.strftime('%H:%M:%S')} to {stop_time.strftime('%H:%M:%S')}")
+        
+        # Capture INITIAL state BEFORE any tick processing
+        print(f"\n📸 Capturing INITIAL state (before any ticks)...")
+        self.capture_initial_snapshot(self.start_time)
+        
+        processed_seconds = 0
+        processed_tick_count = 0
+        
+        for second_timestamp in sorted_seconds:
+            # Stop after 3 seconds
+            if second_timestamp >= stop_time:
+                print(f"\n⏹️  Stopped after {self.stop_after_seconds} seconds")
+                break
+            
+            tick_batch = ticks_by_second[second_timestamp]
+            
+            # Process all ticks in this second
+            last_processed_tick = None
+            for tick in tick_batch:
+                try:
+                    last_processed_tick = self.data_manager.process_tick(tick)
+                    processed_tick_count += 1
+                except Exception as e:
+                    if processed_tick_count < 10:
+                        print(f"   Error processing tick: {e}")
+            
+            # Execute strategy once per second using centralized processor
+            if last_processed_tick:
+                try:
+                    tick_data = {
+                        'symbol': last_processed_tick.get('symbol'),
+                        'ltp': last_processed_tick.get('ltp'),
+                        'timestamp': second_timestamp,
+                        'volume': last_processed_tick.get('volume', 0),
+                        'batch_size': len(tick_batch)
+                    }
+                    
+                    # Execute through centralized processor
+                    self.centralized_processor.on_tick(tick_data)
+                    
+                    # Capture snapshot after execution
+                    self.capture_snapshot(second_timestamp, tick_data, len(tick_batch))
+                    
+                except Exception as e:
+                    print(f"   Strategy execution error: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            processed_seconds += 1
+        
+        print(f"\n✅ Processed {processed_seconds} seconds, {processed_tick_count} ticks")
+    
+    def capture_snapshot(self, timestamp, tick_data, batch_size):
+        """Capture detailed snapshot of cache, nodes, and flags."""
+        
+        snapshot = {
+            'timestamp': timestamp,
+            'tick_batch_size': batch_size,
+            'tick_symbol': tick_data.get('symbol'),
+            'tick_ltp': tick_data.get('ltp'),
+            'cache': {},
+            'nodes': [],
+            'strategy_states': {}
+        }
+        
+        # Capture cache from data_manager's cache
+        if hasattr(self.data_manager, 'cache'):
+            cache = self.data_manager.cache
+            
+            # Capture LTP
+            for symbol, ltp in cache.ltp.items():
+                snapshot['cache'][f'LTP:{symbol}'] = ltp
+            
+            # Capture candles count
+            for key, candles_deque in cache.candles.items():
+                snapshot['cache'][f'CANDLES:{key}'] = f"{len(candles_deque)} candles"
+            
+            # Capture indicators
+            for key, indicator_data in cache.indicators.items():
+                value = indicator_data.get('value')
+                if isinstance(value, (int, float)):
+                    snapshot['cache'][f'IND:{key}'] = f"{value:.2f}"
+                else:
+                    snapshot['cache'][f'IND:{key}'] = str(value)
+        
+        # Capture node statuses from centralized processor
+        if hasattr(self.centralized_processor, 'strategy_manager'):
+            active_strategies = self.centralized_processor.strategy_manager.active_strategies
+            
+            for instance_id, strategy_state in active_strategies.items():
+                strategy_info = {
+                    'instance_id': instance_id,
+                    'node_states': {}
+                }
+                
+                # Capture each node's state
+                for node_id, node_state in strategy_state.get('node_states', {}).items():
+                    node_info = {
+                        'status': node_state.get('status', 'Unknown'),
+                        'visited': node_state.get('visited', False),
+                        'last_execution': str(node_state.get('last_execution', 'Never'))
+                    }
+                    
+                    # Try to get additional node details
+                    if 'node_manager' in strategy_state:
+                        node_manager = strategy_state['node_manager']
+                        if hasattr(node_manager, 'nodes') and node_id in node_manager.nodes:
+                            node_instance = node_manager.nodes[node_id]
+                            
+                            # Capture flags
+                            if hasattr(node_instance, '_initialization_complete'):
+                                node_info['initialization_complete'] = node_instance._initialization_complete
+                            if hasattr(node_instance, '_children_activated'):
+                                node_info['children_activated'] = node_instance._children_activated
+                            if hasattr(node_instance, 'is_active'):
+                                try:
+                                    node_info['is_active'] = node_instance.is_active()
+                                except:
+                                    pass
+                            
+                            # Get node type
+                            node_info['type'] = node_instance.__class__.__name__
+                    
+                    strategy_info['node_states'][node_id] = node_info
+                
+                snapshot['strategy_states'][instance_id] = strategy_info
+        
+        self.snapshots.append(snapshot)
+    
+    def capture_initial_snapshot(self, timestamp):
+        """Capture initial state before any tick processing."""
+        
+        snapshot = {
+            'timestamp': timestamp,
+            'is_initial': True,
+            'tick_batch_size': 0,
+            'tick_symbol': 'N/A',
+            'tick_ltp': 'N/A',
+            'cache': {},
+            'nodes': [],
+            'strategy_states': {}
+        }
+        
+        # Capture initial cache state
+        if hasattr(self.data_manager, 'cache'):
+            cache = self.data_manager.cache
+            
+            # Capture LTP
+            for symbol, ltp in cache.ltp.items():
+                snapshot['cache'][f'LTP:{symbol}'] = ltp
+            
+            # Capture candles count
+            for key, candles_deque in cache.candles.items():
+                snapshot['cache'][f'CANDLES:{key}'] = f"{len(candles_deque)} candles"
+            
+            # Capture indicators
+            for key, indicator_data in cache.indicators.items():
+                value = indicator_data.get('value')
+                if isinstance(value, (int, float)):
+                    snapshot['cache'][f'IND:{key}'] = f"{value:.2f}"
+                else:
+                    snapshot['cache'][f'IND:{key}'] = str(value)
+        
+        # Capture initial node states
+        if hasattr(self.centralized_processor, 'strategy_manager'):
+            active_strategies = self.centralized_processor.strategy_manager.active_strategies
+            
+            for instance_id, strategy_state in active_strategies.items():
+                strategy_info = {
+                    'instance_id': instance_id,
+                    'node_states': {}
+                }
+                
+                # Capture each node's initial state
+                for node_id, node_state in strategy_state.get('node_states', {}).items():
+                    node_info = {
+                        'status': node_state.get('status', 'Unknown'),
+                        'visited': node_state.get('visited', False),
+                        'last_execution': str(node_state.get('last_execution', 'Never'))
+                    }
+                    
+                    # Try to get additional node details
+                    if 'node_manager' in strategy_state:
+                        node_manager = strategy_state['node_manager']
+                        if hasattr(node_manager, 'nodes') and node_id in node_manager.nodes:
+                            node_instance = node_manager.nodes[node_id]
+                            
+                            # Capture flags
+                            if hasattr(node_instance, '_initialization_complete'):
+                                node_info['initialization_complete'] = node_instance._initialization_complete
+                            if hasattr(node_instance, '_children_activated'):
+                                node_info['children_activated'] = node_instance._children_activated
+                            if hasattr(node_instance, 'is_active'):
+                                try:
+                                    node_info['is_active'] = node_instance.is_active()
+                                except:
+                                    pass
+                            
+                            # Get node type
+                            node_info['type'] = node_instance.__class__.__name__
+                    
+                    strategy_info['node_states'][node_id] = node_info
+                
+                snapshot['strategy_states'][instance_id] = strategy_info
+        
+        self.snapshots.append(snapshot)
+
+# Create config and engine
+config = BacktestConfig(
+    strategy_id=strategy_id,
+    user_id=user_id,
+    backtest_date=backtest_date
+)
+
+engine = SnapshotTrackingEngine(config)
+
+# Manually inject the patched strategy
+print(f"🔧 Injecting patched strategy configuration...")
+engine.strategy_manager.adapter.supabase.table('strategies').update(
+    {'strategy': raw_strategy['strategy']}
+).eq('id', strategy_id).execute()
+print(f"   ✅ Strategy patched in database")
+
+# ==============================================================================
+# STEP 3: Run Backtest
+# ==============================================================================
+
+print("\n" + "-"*100)
+print("STEP 3: RUNNING BACKTEST")
+print("-"*100)
+
+try:
+    results = engine.run()
+    print(f"\n✅ Backtest completed")
+except Exception as e:
+    print(f"\n❌ Backtest error: {e}")
+    import traceback
+    traceback.print_exc()
+
+# ==============================================================================
+# STEP 4: Display Snapshots
+# ==============================================================================
+
+print("\n" + "="*100)
+print("SNAPSHOTS - FIRST 10 SECONDS (SECOND-BY-SECOND)")
+print("="*100)
+
+for i, snapshot in enumerate(engine.snapshots, 1):
+    is_initial = snapshot.get('is_initial', False)
+    
+    print(f"\n{'▼'*100}")
+    if is_initial:
+        print(f"SNAPSHOT #0 - INITIAL STATE (BEFORE FIRST TICK) - {snapshot['timestamp'].strftime('%H:%M:%S')}")
+    else:
+        print(f"SNAPSHOT #{i} - {snapshot['timestamp'].strftime('%H:%M:%S')}")
+    print(f"{'▼'*100}")
+    
+    # Tick info
+    if not is_initial:
+        print(f"\n📊 TICK INFO:")
+        print(f"   Symbol: {snapshot['tick_symbol']}")
+        print(f"   LTP: {snapshot['tick_ltp']}")
+        print(f"   Batch size: {snapshot['tick_batch_size']} ticks")
+    else:
+        print(f"\n📊 INITIAL STATE - No ticks processed yet")
+    
+    # Cache snapshot
+    print(f"\n📦 CACHE STATE:")
+    print(f"   Total keys: {len(snapshot['cache'])}")
+    
+    if snapshot['cache']:
+        print(f"\n   Cache contents:")
+        for key, value in sorted(snapshot['cache'].items()):
+            print(f"      {key}: {value}")
+    else:
+        print(f"   (empty)")
+    
+    # Strategy states and node statuses
+    print(f"\n🔧 NODE STATUSES:")
+    
+    if snapshot['strategy_states']:
+        for instance_id, strategy_info in snapshot['strategy_states'].items():
+            print(f"\n   Strategy: {instance_id}")
+            print(f"   Total nodes: {len(strategy_info['node_states'])}")
+            
+            if strategy_info['node_states']:
+                # Categorize nodes by status
+                active_nodes = []
+                inactive_nodes = []
+                pending_nodes = []
+                
+                for node_id, node_info in strategy_info['node_states'].items():
+                    status = node_info.get('status', 'Unknown')
+                    if status == 'Active':
+                        active_nodes.append((node_id, node_info))
+                    elif status == 'Inactive':
+                        inactive_nodes.append((node_id, node_info))
+                    elif status == 'Pending':
+                        pending_nodes.append((node_id, node_info))
+                    else:
+                        inactive_nodes.append((node_id, node_info))  # Unknown goes to inactive
+                
+                # Display header
+                print(f"\n   {'Node ID':<35} {'Type':<20} {'Status':<12} {'Visited':<10} {'Flags'}")
+                print(f"   {'-'*35} {'-'*20} {'-'*12} {'-'*10} {'-'*50}")
+                
+                # Display StartNode first (if present)
+                for node_id, node_info in inactive_nodes + active_nodes + pending_nodes:
+                    if 'start' in node_id.lower() or 'controller' in node_id.lower():
+                        node_type = node_info.get('type', 'Unknown')
+                        status = node_info.get('status', 'Unknown')
+                        visited = str(node_info.get('visited', False))
+                        
+                        flags = []
+                        if 'initialization_complete' in node_info:
+                            flags.append(f"init={node_info['initialization_complete']}")
+                        if 'children_activated' in node_info:
+                            flags.append(f"children={node_info['children_activated']}")
+                        if 'is_active' in node_info:
+                            flags.append(f"active={node_info['is_active']}")
+                        
+                        flags_str = ', '.join(flags) if flags else '-'
+                        print(f"⭐ {node_id:<35} {node_type:<20} {status:<12} {visited:<10} {flags_str}")
+                        break
+                
+                # Show summary counts
+                print(f"\n   📊 STATUS SUMMARY:")
+                print(f"      Active: {len(active_nodes)} nodes")
+                print(f"      Inactive: {len(inactive_nodes)} nodes")
+                if pending_nodes:
+                    print(f"      Pending: {len(pending_nodes)} nodes")
+                
+                # List active nodes
+                if active_nodes:
+                    print(f"\n   ✅ ACTIVE NODES ({len(active_nodes)}):")
+                    for node_id, node_info in active_nodes:
+                        if 'start' not in node_id.lower() and 'controller' not in node_id.lower():
+                            node_type = node_info.get('type', 'Unknown')
+                            print(f"      • {node_id} ({node_type})")
+                
+                # List inactive nodes (excluding StartNode, already shown)
+                if inactive_nodes:
+                    print(f"\n   ⚪ INACTIVE NODES ({len(inactive_nodes)}):")
+                    for node_id, node_info in inactive_nodes:
+                        if 'start' not in node_id.lower() and 'controller' not in node_id.lower():
+                            node_type = node_info.get('type', 'Unknown')
+                            print(f"      • {node_id} ({node_type})")
+                
+                # List pending nodes
+                if pending_nodes:
+                    print(f"\n   🔄 PENDING NODES ({len(pending_nodes)}):")
+                    for node_id, node_info in pending_nodes:
+                        node_type = node_info.get('type', 'Unknown')
+                        print(f"      • {node_id} ({node_type})")
+    else:
+        print(f"   (no strategy data captured)")
+    
+    print(f"\n{'▲'*100}\n")
+
+print("\n" + "="*100)
+print("SUMMARY")
+print("="*100)
+print(f"Total snapshots captured: {len(engine.snapshots)}")
+print(f"Duration: {engine.snapshots[-1]['timestamp'] - engine.snapshots[0]['timestamp'] if engine.snapshots else 'N/A'}")
+print("="*100 + "\n")

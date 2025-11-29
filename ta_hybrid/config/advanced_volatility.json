@@ -1,0 +1,236 @@
+{
+    "category": "Advanced Volatility",
+    "indicators": [
+        {
+            "name": "ABERRATION",
+            "function_name": "aberration",
+            "display_name": "Aberration",
+            "description": "Volatility bands with ATR",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 5,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "atr_length",
+                    "type": "number",
+                    "label": "ATR Length",
+                    "default": 15,
+                    "description": "ATR period"
+                }
+            ],
+            "outputs": ["ABER_ZG", "ABER_SG", "ABER_XG", "ABER_ATR"]
+        },
+        {
+            "name": "ACCBANDS",
+            "function_name": "accbands",
+            "display_name": "Acceleration Bands",
+            "description": "Volatility bands using high/low",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "c",
+                    "type": "number",
+                    "label": "Multiplier",
+                    "default": 4,
+                    "description": "Band multiplier"
+                }
+            ],
+            "outputs": ["ACCBL", "ACCBM", "ACCBU"]
+        },
+        {
+            "name": "ATRTS",
+            "function_name": "atrts",
+            "display_name": "ATR Trailing Stop",
+            "description": "Trailing stop based on ATR",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "ATR Length",
+                    "default": 14,
+                    "description": "ATR period"
+                },
+                {
+                    "name": "multiplier",
+                    "type": "number",
+                    "label": "Multiplier",
+                    "default": 3,
+                    "description": "ATR multiplier"
+                }
+            ],
+            "outputs": ["ATRTSl", "ATRTSs"]
+        },
+        {
+            "name": "CHANDELIER_EXIT",
+            "function_name": "chandelier_exit",
+            "display_name": "Chandelier Exit",
+            "description": "Volatility-based exit indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 22,
+                    "description": "ATR period"
+                },
+                {
+                    "name": "scalar",
+                    "type": "number",
+                    "label": "Multiplier",
+                    "default": 3,
+                    "description": "ATR multiplier"
+                }
+            ],
+            "outputs": ["CEl", "CEs"]
+        },
+        {
+            "name": "HWC",
+            "function_name": "hwc",
+            "display_name": "Holt-Winter Channel",
+            "description": "Adaptive channel using Holt-Winter",
+            "parameters": [
+                {
+                    "name": "na",
+                    "type": "number",
+                    "label": "Alpha",
+                    "default": 0.2,
+                    "description": "Alpha parameter"
+                },
+                {
+                    "name": "nb",
+                    "type": "number",
+                    "label": "Beta",
+                    "default": 0.1,
+                    "description": "Beta parameter"
+                },
+                {
+                    "name": "nc",
+                    "type": "number",
+                    "label": "Gamma",
+                    "default": 0.1,
+                    "description": "Gamma parameter"
+                }
+            ],
+            "outputs": ["HWC"]
+        },
+        {
+            "name": "MASSI",
+            "function_name": "massi",
+            "display_name": "Mass Index",
+            "description": "Identifies trend reversals",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 9,
+                    "description": "Fast EMA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 25,
+                    "description": "Slow EMA period"
+                }
+            ],
+            "outputs": ["MASSI"]
+        },
+        {
+            "name": "RVI",
+            "function_name": "rvi",
+            "display_name": "Relative Volatility Index",
+            "description": "RSI applied to standard deviation",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["RVI"]
+        },
+        {
+            "name": "THERMO",
+            "function_name": "thermo",
+            "display_name": "Elders Thermometer",
+            "description": "Measures market temperature",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "long",
+                    "type": "number",
+                    "label": "Long Period",
+                    "default": 2,
+                    "description": "Long smoothing"
+                },
+                {
+                    "name": "short",
+                    "type": "number",
+                    "label": "Short Period",
+                    "default": 0.5,
+                    "description": "Short smoothing"
+                }
+            ],
+            "outputs": ["THERMO", "THERMOma"]
+        },
+        {
+            "name": "TRUE_RANGE",
+            "function_name": "true_range",
+            "display_name": "True Range",
+            "description": "True range of price movement",
+            "parameters": [],
+            "outputs": ["TRUERANGE"]
+        },
+        {
+            "name": "UI",
+            "function_name": "ui",
+            "display_name": "Ulcer Index",
+            "description": "Measures downside volatility",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["UI"]
+        }
+    ]
+}

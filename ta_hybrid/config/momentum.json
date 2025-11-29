@@ -1,0 +1,398 @@
+{
+    "category": "Momentum Indicators",
+    "indicators": [
+        {
+            "name": "RSI",
+            "function_name": "rsi",
+            "display_name": "Relative Strength Index",
+            "description": "Momentum oscillator measuring speed and change of price movements",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["RSI"]
+        },
+        {
+            "name": "MACD",
+            "function_name": "macd",
+            "display_name": "Moving Average Convergence Divergence",
+            "description": "Trend-following momentum indicator",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 12,
+                    "description": "Fast EMA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 26,
+                    "description": "Slow EMA period"
+                },
+                {
+                    "name": "signal",
+                    "type": "number",
+                    "label": "Signal Period",
+                    "default": 9,
+                    "description": "Signal line period"
+                }
+            ],
+            "outputs": ["MACD", "MACDh", "MACDs"]
+        },
+        {
+            "name": "STOCH",
+            "function_name": "stoch",
+            "display_name": "Stochastic Oscillator",
+            "description": "Momentum indicator comparing closing price to price range",
+            "parameters": [
+                {
+                    "name": "k",
+                    "type": "number",
+                    "label": "K Period",
+                    "default": 14,
+                    "description": "%K period"
+                },
+                {
+                    "name": "d",
+                    "type": "number",
+                    "label": "D Period",
+                    "default": 3,
+                    "description": "%D smoothing period"
+                },
+                {
+                    "name": "smooth_k",
+                    "type": "number",
+                    "label": "Smooth K",
+                    "default": 3,
+                    "description": "%K smoothing"
+                }
+            ],
+            "outputs": ["STOCHk", "STOCHd"]
+        },
+        {
+            "name": "STOCHRSI",
+            "function_name": "stochrsi",
+            "display_name": "Stochastic RSI",
+            "description": "Applies stochastic oscillator to RSI values",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "RSI Length",
+                    "default": 14,
+                    "description": "RSI calculation period"
+                },
+                {
+                    "name": "rsi_length",
+                    "type": "number",
+                    "label": "Stoch Length",
+                    "default": 14,
+                    "description": "Stochastic calculation period"
+                },
+                {
+                    "name": "k",
+                    "type": "number",
+                    "label": "K Period",
+                    "default": 3,
+                    "description": "%K smoothing"
+                },
+                {
+                    "name": "d",
+                    "type": "number",
+                    "label": "D Period",
+                    "default": 3,
+                    "description": "%D smoothing"
+                }
+            ],
+            "outputs": ["STOCHRSIk", "STOCHRSId"]
+        },
+        {
+            "name": "CCI",
+            "function_name": "cci",
+            "display_name": "Commodity Channel Index",
+            "description": "Measures deviation from average price",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["CCI"]
+        },
+        {
+            "name": "CMO",
+            "function_name": "cmo",
+            "display_name": "Chande Momentum Oscillator",
+            "description": "Momentum oscillator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["CMO"]
+        },
+        {
+            "name": "ROC",
+            "function_name": "roc",
+            "display_name": "Rate of Change",
+            "description": "Percentage change in price",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["ROC"]
+        },
+        {
+            "name": "MOM",
+            "function_name": "mom",
+            "display_name": "Momentum",
+            "description": "Rate of price change",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["MOM"]
+        },
+        {
+            "name": "WILLR",
+            "function_name": "willr",
+            "display_name": "Williams %R",
+            "description": "Momentum indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["WILLR"]
+        },
+        {
+            "name": "PPO",
+            "function_name": "ppo",
+            "display_name": "Percentage Price Oscillator",
+            "description": "MACD as percentage",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 12,
+                    "description": "Fast EMA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 26,
+                    "description": "Slow EMA period"
+                },
+                {
+                    "name": "signal",
+                    "type": "number",
+                    "label": "Signal Period",
+                    "default": 9,
+                    "description": "Signal line period"
+                }
+            ],
+            "outputs": ["PPO", "PPOh", "PPOs"]
+        },
+        {
+            "name": "TRIX",
+            "function_name": "trix",
+            "display_name": "TRIX",
+            "description": "Triple exponential average oscillator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 15,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["TRIX"]
+        },
+        {
+            "name": "UO",
+            "function_name": "uo",
+            "display_name": "Ultimate Oscillator",
+            "description": "Momentum oscillator using three timeframes",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 7,
+                    "description": "Fast period"
+                },
+                {
+                    "name": "medium",
+                    "type": "number",
+                    "label": "Medium Period",
+                    "default": 14,
+                    "description": "Medium period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 28,
+                    "description": "Slow period"
+                }
+            ],
+            "outputs": ["UO"]
+        },
+        {
+            "name": "AO",
+            "function_name": "ao",
+            "display_name": "Awesome Oscillator",
+            "description": "Momentum indicator using median price",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 5,
+                    "description": "Fast SMA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 34,
+                    "description": "Slow SMA period"
+                }
+            ],
+            "outputs": ["AO"]
+        },
+        {
+            "name": "BOP",
+            "function_name": "bop",
+            "display_name": "Balance of Power",
+            "description": "Measures buying vs selling pressure",
+            "parameters": [],
+            "outputs": ["BOP"]
+        },
+        {
+            "name": "FISHER",
+            "function_name": "fisher",
+            "display_name": "Fisher Transform",
+            "description": "Converts prices to Gaussian distribution",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 9,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["FISHER", "FISHERs"]
+        },
+        {
+            "name": "KST",
+            "function_name": "kst",
+            "display_name": "Know Sure Thing",
+            "description": "Momentum oscillator",
+            "parameters": [
+                {
+                    "name": "roc1",
+                    "type": "number",
+                    "label": "ROC 1",
+                    "default": 10,
+                    "description": "First ROC period"
+                },
+                {
+                    "name": "roc2",
+                    "type": "number",
+                    "label": "ROC 2",
+                    "default": 15,
+                    "description": "Second ROC period"
+                },
+                {
+                    "name": "roc3",
+                    "type": "number",
+                    "label": "ROC 3",
+                    "default": 20,
+                    "description": "Third ROC period"
+                },
+                {
+                    "name": "roc4",
+                    "type": "number",
+                    "label": "ROC 4",
+                    "default": 30,
+                    "description": "Fourth ROC period"
+                }
+            ],
+            "outputs": ["KST", "KSTs"]
+        }
+    ]
+}

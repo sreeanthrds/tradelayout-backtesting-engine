@@ -1,0 +1,42 @@
+{
+    "category": "Ichimoku Cloud System",
+    "indicators": [
+        {
+            "name": "ICHIMOKU",
+            "function_name": "ichimoku",
+            "display_name": "Ichimoku Cloud",
+            "description": "Complete Ichimoku Kinko Hyo trading system with 5 components",
+            "parameters": [
+                {
+                    "name": "tenkan_period",
+                    "type": "number",
+                    "label": "Tenkan Period",
+                    "default": 9,
+                    "description": "Conversion Line period"
+                },
+                {
+                    "name": "kijun_period",
+                    "type": "number",
+                    "label": "Kijun Period",
+                    "default": 26,
+                    "description": "Base Line period"
+                },
+                {
+                    "name": "senkou_b_period",
+                    "type": "number",
+                    "label": "Senkou B Period",
+                    "default": 52,
+                    "description": "Leading Span B period"
+                },
+                {
+                    "name": "displacement",
+                    "type": "number",
+                    "label": "Displacement",
+                    "default": 26,
+                    "description": "Cloud displacement (shift forward)"
+                }
+            ],
+            "outputs": ["tenkan_sen", "kijun_sen", "senkou_span_a", "senkou_span_b", "chikou_span"]
+        }
+    ]
+}

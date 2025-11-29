@@ -1,0 +1,129 @@
+{
+    "category": "Advanced Volume",
+    "indicators": [
+        {
+            "name": "AOBV",
+            "function_name": "aobv",
+            "display_name": "Archer On-Balance Volume",
+            "description": "Enhanced OBV with fast/slow periods",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 4,
+                    "description": "Fast MA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 12,
+                    "description": "Slow MA period"
+                }
+            ],
+            "outputs": ["AOBV"]
+        },
+        {
+            "name": "EOM",
+            "function_name": "eom",
+            "display_name": "Ease of Movement",
+            "description": "Relates price change to volume",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "divisor",
+                    "type": "number",
+                    "label": "Divisor",
+                    "default": 100000000,
+                    "description": "Volume divisor"
+                }
+            ],
+            "outputs": ["EOM"]
+        },
+        {
+            "name": "KVO",
+            "function_name": "kvo",
+            "display_name": "Klinger Volume Oscillator",
+            "description": "Volume-based momentum indicator",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 34,
+                    "description": "Fast EMA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 55,
+                    "description": "Slow EMA period"
+                },
+                {
+                    "name": "signal",
+                    "type": "number",
+                    "label": "Signal Period",
+                    "default": 13,
+                    "description": "Signal line period"
+                }
+            ],
+            "outputs": ["KVO", "KVOs"]
+        },
+        {
+            "name": "PVOL",
+            "function_name": "pvol",
+            "display_name": "Price Volume",
+            "description": "Price multiplied by volume",
+            "parameters": [],
+            "outputs": ["PVOL"]
+        },
+        {
+            "name": "PVR",
+            "function_name": "pvr",
+            "display_name": "Price Volume Rank",
+            "description": "Ranks price-volume relationship",
+            "parameters": [],
+            "outputs": ["PVR"]
+        },
+        {
+            "name": "TSV",
+            "function_name": "tsv",
+            "display_name": "Time Segmented Volume",
+            "description": "Volume indicator with time segments",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 18,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["TSV"]
+        },
+        {
+            "name": "VP",
+            "function_name": "vp",
+            "display_name": "Volume Profile",
+            "description": "Volume distribution by price",
+            "parameters": [
+                {
+                    "name": "width",
+                    "type": "number",
+                    "label": "Width",
+                    "default": 10,
+                    "description": "Number of price bins"
+                }
+            ],
+            "outputs": ["VP"]
+        }
+    ]
+}

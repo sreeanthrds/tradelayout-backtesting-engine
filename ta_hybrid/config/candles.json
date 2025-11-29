@@ -1,0 +1,54 @@
+{
+    "category": "Candle Patterns",
+    "indicators": [
+        {
+            "name": "HA",
+            "function_name": "ha",
+            "display_name": "Heikin Ashi",
+            "description": "Heikin Ashi candlesticks for trend identification",
+            "parameters": [],
+            "outputs": ["HA_open", "HA_high", "HA_low", "HA_close"]
+        },
+        {
+            "name": "CDL_DOJI",
+            "function_name": "cdl_doji",
+            "display_name": "Doji Pattern",
+            "description": "Identifies Doji candlestick patterns",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Lookback period"
+                }
+            ],
+            "outputs": ["CDL_DOJI"]
+        },
+        {
+            "name": "CDL_INSIDE",
+            "function_name": "cdl_inside",
+            "display_name": "Inside Bar Pattern",
+            "description": "Identifies inside bar patterns",
+            "parameters": [],
+            "outputs": ["CDL_INSIDE"]
+        },
+        {
+            "name": "CDL_PATTERN",
+            "function_name": "cdl_pattern",
+            "display_name": "Candlestick Patterns",
+            "description": "Comprehensive candlestick pattern recognition",
+            "parameters": [
+                {
+                    "name": "name",
+                    "type": "dropdown",
+                    "label": "Pattern",
+                    "options": ["all", "doji", "hammer", "shooting_star", "engulfing"],
+                    "default": "all",
+                    "description": "Pattern to detect"
+                }
+            ],
+            "outputs": ["CDL_PATTERN"]
+        }
+    ]
+}

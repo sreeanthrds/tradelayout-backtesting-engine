@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Memory settings optimized for CPX21 (4GB RAM) -->
+    <!-- Allocate 1GB for ClickHouse queries -->
+    <max_memory_usage>1073741824</max_memory_usage>
+    
+    <!-- External sorting/grouping thresholds -->
+    <max_bytes_before_external_group_by>536870912</max_bytes_before_external_group_by>
+    <max_bytes_before_external_sort>536870912</max_bytes_before_external_sort>
+    
+    <!-- Network settings - listen on all interfaces -->
+    <listen_host>::</listen_host>
+    
+    <!-- Logging configuration -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>3</count>
+    </logger>
+    
+    <!-- Query log settings -->
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_log>
+    
+    <!-- Performance settings -->
+    <max_concurrent_queries>50</max_concurrent_queries>
+    <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
+    
+    <!-- Compression settings -->
+    <compression>
+        <case>
+            <min_part_size>10485760</min_part_size>
+            <min_part_size_ratio>0.01</min_part_size_ratio>
+            <method>zstd</method>
+            <level>9</level>
+        </case>
+    </compression>
+</clickhouse>

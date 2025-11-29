@@ -1,0 +1,154 @@
+{
+    "category": "Volume Indicators",
+    "indicators": [
+        {
+            "name": "OBV",
+            "function_name": "obv",
+            "display_name": "On-Balance Volume",
+            "description": "Volume-based momentum indicator",
+            "parameters": [],
+            "outputs": ["OBV"]
+        },
+        {
+            "name": "AD",
+            "function_name": "ad",
+            "display_name": "Accumulation/Distribution",
+            "description": "Volume flow indicator",
+            "parameters": [],
+            "outputs": ["AD"]
+        },
+        {
+            "name": "ADOSC",
+            "function_name": "adosc",
+            "display_name": "Chaikin A/D Oscillator",
+            "description": "Momentum of accumulation/distribution",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 3,
+                    "description": "Fast EMA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 10,
+                    "description": "Slow EMA period"
+                }
+            ],
+            "outputs": ["ADOSC"]
+        },
+        {
+            "name": "CMF",
+            "function_name": "cmf",
+            "display_name": "Chaikin Money Flow",
+            "description": "Money flow volume indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["CMF"]
+        },
+        {
+            "name": "MFI",
+            "function_name": "mfi",
+            "display_name": "Money Flow Index",
+            "description": "Volume-weighted RSI",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["MFI"]
+        },
+        {
+            "name": "PVT",
+            "function_name": "pvt",
+            "display_name": "Price Volume Trend",
+            "description": "Cumulative volume-based indicator",
+            "parameters": [],
+            "outputs": ["PVT"]
+        },
+        {
+            "name": "VWAP",
+            "function_name": "vwap",
+            "display_name": "Volume Weighted Average Price",
+            "description": "Average price weighted by volume",
+            "parameters": [],
+            "outputs": ["VWAP"]
+        },
+        {
+            "name": "PVO",
+            "function_name": "pvo",
+            "display_name": "Percentage Volume Oscillator",
+            "description": "Volume momentum indicator",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 12,
+                    "description": "Fast EMA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 26,
+                    "description": "Slow EMA period"
+                },
+                {
+                    "name": "signal",
+                    "type": "number",
+                    "label": "Signal Period",
+                    "default": 9,
+                    "description": "Signal line period"
+                }
+            ],
+            "outputs": ["PVO", "PVOh", "PVOs"]
+        },
+        {
+            "name": "EFI",
+            "function_name": "efi",
+            "display_name": "Elder's Force Index",
+            "description": "Measures power behind price movements using volume",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 13,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["EFI"]
+        },
+        {
+            "name": "NVI",
+            "function_name": "nvi",
+            "display_name": "Negative Volume Index",
+            "description": "Cumulative indicator for down volume days",
+            "parameters": [],
+            "outputs": ["NVI"]
+        },
+        {
+            "name": "PVI",
+            "function_name": "pvi",
+            "display_name": "Positive Volume Index",
+            "description": "Cumulative indicator for up volume days",
+            "parameters": [],
+            "outputs": ["PVI"]
+        }
+    ]
+}

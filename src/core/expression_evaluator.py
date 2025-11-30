@@ -1040,20 +1040,34 @@ class ExpressionEvaluator:
         field = str(field).lower()
         
         # For backtesting, candles is a list of dicts
+        # Last element is the forming candle, rest are completed candles
         if isinstance(candles, list):
-            # offset=-1 means previous candle (last in list)
-            # offset=0 would mean current candle (not yet completed, so use last)
-            # offset=-2 means 2 candles ago
+            # offset=0 means current forming candle (last in list)
+            # offset=-1 means previous completed candle (second to last)
+            # offset=-2 means 2 candles back, etc.
             try:
-                # Get candle at offset position from end
-                target_index = offset  # -1 = last, -2 = second to last
-                if target_index >= 0:
-                    target_index = target_index - len(candles)  # Convert to negative index
+                # Convert offset to array index: offset - 1
+                # offset 0  → candles[-1] (forming)
+                # offset -1 → candles[-2] (last completed)
+                # offset -2 → candles[-3] (2 completed back)
+                target_index = offset - 1
                 
                 if abs(target_index) > len(candles):
                     return None
                 
                 candle = candles[target_index]
+                
+                # Safeguard: Warn if accessing indicator on forming candle (offset 0)
+                # Indicators are only calculated on completed candles
+                ohlcv_fields = ['open', 'high', 'low', 'close', 'volume', 'timestamp']
+                if offset == 0 and field not in ohlcv_fields:
+                    logger.warning(
+                        f"Attempting to access indicator '{field}' on forming candle (offset 0). "
+                        f"Indicators are only available on completed candles (offset < 0). "
+                        f"Returning None."
+                    )
+                    return None
+                
                 value = candle.get(field)
                 
                 # DEBUG at tick 115

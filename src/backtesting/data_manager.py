@@ -271,24 +271,24 @@ class DataManager:
                     # Re-raise - indicator initialization failure is critical
                     raise RuntimeError(f"Indicator initialization failed for {indicator_key}: {e}") from e
         
-        # CRITICAL: ALWAYS store last 20 candles, even if no indicators registered
-        # Reason: Condition nodes may reference historical candles (e.g., candles[-2]['high'])
-        # This runs for all timeframes, regardless of indicator registration
+        # CRITICAL: Store last 19 completed candles (leave room for forming candle)
+        # Reason: Buffer structure is [19 completed + 1 forming] = 20 total
+        # The forming candle will be added on the first tick
         if self._is_index_or_future(symbol):
-            last_20 = candles.tail(20).copy()
+            last_19 = candles.tail(19).copy()
             
             # Convert to list of dicts for cache (includes indicator columns!)
-            candles_list = last_20.to_dict('records')
+            candles_list = last_19.to_dict('records')
             self.cache.set_candles(symbol, timeframe, candles_list)
             
             # Mark this symbol:timeframe as initialized from historical data
             self._initialized_symbol_timeframes[key] = True
             
             if has_indicators:
-                logger.info(f"💾 Stored last 20 candles with {len(self.indicators[key])} indicators for {key}")
-                logger.info(f"🧠 Indicator states ready for incremental updates")
+                logger.info(f"💾 Stored last 19 completed candles with {len(self.indicators[key])} indicators for {key}")
+                logger.info(f"🧠 Indicator states ready for incremental updates (forming candle will be added on first tick)")
             else:
-                logger.info(f"💾 Stored last 20 candles for {key} (no indicators registered)")
+                logger.info(f"💾 Stored last 19 completed candles for {key} (forming candle will be added on first tick)")
     
     def process_tick(self, tick: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -394,6 +394,14 @@ class DataManager:
                 print(f"[DEBUG DataManager] Adding candle to buffer: {unified_symbol}:{timeframe}")
             self._add_to_candle_buffer(unified_symbol, timeframe, candle)
         
+        # Step 5: Update forming candle in buffer (even if no candle completed)
+        # This ensures the buffer always has the current forming candle at position -1
+        if self._is_index_or_future(unified_symbol):
+            for timeframe, builder in self.candle_builders.items():
+                forming_candle = builder.get_current_candle(unified_symbol)
+                if forming_candle:
+                    self._update_forming_candle_in_buffer(unified_symbol, timeframe, forming_candle)
+        
         return tick
     
     # NOTE: _update_indicators method removed - functionality merged into _add_to_candle_buffer
@@ -455,9 +463,25 @@ class DataManager:
                     # Re-raise - incremental indicator update failure is critical
                     raise RuntimeError(f"Incremental update failed for {indicator_key}: {e}") from e
         
-        # Append new candle and keep last 20 (pure list operations - no DataFrame!)
+        # Check if buffer has a forming candle at the end (no indicators)
+        has_forming = False
+        if buffer and not any(k for k in buffer[-1].keys() if k not in ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'symbol', 'timeframe']):
+            # Last candle has only OHLCV fields → it's a forming candle
+            has_forming = True
+        
+        if has_forming:
+            # Remove the forming candle temporarily
+            forming_candle = buffer.pop()
+        
+        # Append new completed candle (with indicators)
         buffer.append(new_candle_data)
-        buffer = buffer[-20:]  # Keep last 20 (FIFO)
+        
+        # Keep last 19 completed candles (to make room for forming candle)
+        buffer = buffer[-19:]
+        
+        if has_forming:
+            # Re-add the forming candle at the end
+            buffer.append(forming_candle)
         
         # Store back in cache (no conversion needed!)
         self.cache.set_candles(symbol, timeframe, buffer)
@@ -467,6 +491,51 @@ class DataManager:
     # NOTE: _add_indicator_columns method removed - replaced with incremental updates
     # Old method recalculated ALL indicators on ALL candles (20x slower + wrong history)
     # New method uses indicator.update() for O(1) incremental calculation
+    
+    def _update_forming_candle_in_buffer(self, symbol: str, timeframe: str, forming_candle: Dict[str, Any]):
+        """
+        Update the forming candle (last element) in the buffer.
+        
+        This is called on every tick to ensure the buffer always has up-to-date
+        OHLCV data for the current forming candle.
+        
+        Args:
+            symbol: Unified symbol
+            timeframe: Timeframe
+            forming_candle: Current forming candle from CandleBuilder
+        """
+        buffer = self.cache.get_candles(symbol, timeframe, count=20)
+        if not buffer:
+            # No buffer yet, create one with just the forming candle
+            buffer = []
+        
+        # Create forming candle dict (OHLCV only, NO indicators)
+        forming_candle_data = {
+            'timestamp': forming_candle['timestamp'],
+            'open': forming_candle['open'],
+            'high': forming_candle['high'],
+            'low': forming_candle['low'],
+            'close': forming_candle['close'],
+            'volume': forming_candle['volume']
+        }
+        
+        if buffer:
+            # Check if last element is a forming candle (no indicators)
+            last_candle = buffer[-1]
+            is_forming = not any(k for k in last_candle.keys() if k not in ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'symbol', 'timeframe'])
+            
+            if is_forming:
+                # Replace the forming candle
+                buffer[-1] = forming_candle_data
+            else:
+                # No forming candle yet, append it
+                buffer.append(forming_candle_data)
+        else:
+            # Empty buffer, add forming candle
+            buffer.append(forming_candle_data)
+        
+        # Store back in cache
+        self.cache.set_candles(symbol, timeframe, buffer)
     
     def get_context(self) -> Dict[str, Any]:
         """

@@ -187,11 +187,21 @@ class SquareOffNode(BaseNode):
                         exit_price = position.get('current_price', position.get('entry_price', 0))
                         log_warning(f"[SquareOff] No LTP found for {position_symbol}, using last known price: ₹{exit_price:.2f}")
                 
+                # Get NIFTY spot price at square-off
+                nifty_spot_exit = 0
+                if 'NIFTY' in ltp_store:
+                    nifty_data = ltp_store['NIFTY']
+                    if isinstance(nifty_data, dict):
+                        nifty_spot_exit = nifty_data.get('ltp', 0)
+                    else:
+                        nifty_spot_exit = nifty_data
+                
                 exit_data = {
                     'reason': 'square_off',
                     'reason_detail': reason,  # Use the actual reason (time_based_exit, immediate_exit_enabled, etc.)
                     'price': exit_price,
-                    'node_id': self.id
+                    'node_id': self.id,
+                    'nifty_spot': nifty_spot_exit  # NIFTY spot price at exit
                 }
                 # Use BaseNode helper to ensure reEntryNum is attached
                 self.close_position(context, position_id, exit_data)

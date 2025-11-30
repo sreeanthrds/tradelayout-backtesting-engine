@@ -720,13 +720,24 @@ class EntryNode(BaseNode):
             lot_size = position_config.get('lotSize', 1)  # From config!
             lots = position_config.get('quantity', 1)  # Number of lots from config
             
-            # Get underlying price at entry
+            # Get underlying price at entry (NIFTY spot)
             ltp_store = context.get('ltp_store', {})
-            ltp_ti = ltp_store.get('ltp_TI', {})
-            if isinstance(ltp_ti, dict):
-                underlying_price_on_entry = ltp_ti.get('ltp') or ltp_ti.get('price', 0)
-            else:
-                underlying_price_on_entry = 0
+            underlying_price_on_entry = 0
+            
+            # Try to get NIFTY spot price
+            if 'NIFTY' in ltp_store:
+                nifty_data = ltp_store['NIFTY']
+                if isinstance(nifty_data, dict):
+                    underlying_price_on_entry = nifty_data.get('ltp') or nifty_data.get('price', 0)
+                else:
+                    underlying_price_on_entry = nifty_data
+            elif 'ltp_TI' in ltp_store:
+                # Fallback to ltp_TI
+                ltp_ti = ltp_store['ltp_TI']
+                if isinstance(ltp_ti, dict):
+                    underlying_price_on_entry = ltp_ti.get('ltp') or ltp_ti.get('price', 0)
+                else:
+                    underlying_price_on_entry = ltp_ti
             
             # Get node variables snapshot (from GPS)
             context_manager = context.get('context_manager')

@@ -714,6 +714,16 @@ class ExitNode(BaseNode):
                 fill_time = exit_order.get('fill_time')
                 exit_time = current_timestamp
             
+            # Get NIFTY spot price at exit
+            ltp_store = context.get('ltp_store', {})
+            nifty_spot_exit = 0
+            if 'NIFTY' in ltp_store:
+                nifty_data = ltp_store['NIFTY']
+                if isinstance(nifty_data, dict):
+                    nifty_spot_exit = nifty_data.get('ltp', 0)
+                else:
+                    nifty_spot_exit = nifty_data
+            
             exit_data = {
                 'node_id': self.id,
                 'price': fill_price,  # Actual average fill price
@@ -727,7 +737,8 @@ class ExitNode(BaseNode):
                 'exit_time': exit_time.isoformat() if exit_time and hasattr(exit_time, 'isoformat') else str(exit_time),
                 'fill_time': fill_time.isoformat() if fill_time and hasattr(fill_time, 'isoformat') else str(fill_time),
                 'fill_price': fill_price,  # Actual average fill price
-                'reEntryNum': re_entry_num
+                'reEntryNum': re_entry_num,
+                'nifty_spot': nifty_spot_exit  # NIFTY spot price at exit
             }
 
             # Close position in GPS (with tick time)

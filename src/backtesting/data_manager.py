@@ -277,8 +277,28 @@ class DataManager:
         if self._is_index_or_future(symbol):
             last_19 = candles.tail(19).copy()
             
-            # Convert to list of dicts for cache (includes indicator columns!)
-            candles_list = last_19.to_dict('records')
+            # Convert to list of dicts and nest indicators under 'indicators' key
+            candles_list = []
+            for _, row in last_19.iterrows():
+                candle_dict = {
+                    'timestamp': row['timestamp'],
+                    'open': row['open'],
+                    'high': row['high'],
+                    'low': row['low'],
+                    'close': row['close'],
+                    'volume': row['volume']
+                }
+                
+                # Nest indicator values under 'indicators' key
+                if has_indicators:
+                    candle_dict['indicators'] = {}
+                    for indicator_key in self.indicators[key].keys():
+                        col_name = indicator_key.replace('(', '_').replace(')', '').replace(',', '_')
+                        if col_name in row:
+                            candle_dict['indicators'][indicator_key] = row[col_name]
+                
+                candles_list.append(candle_dict)
+            
             self.cache.set_candles(symbol, timeframe, candles_list)
             
             # Mark this symbol:timeframe as initialized from historical data
@@ -369,13 +389,6 @@ class DataManager:
         # Step 3: Build candles (per timeframe) - ONLY for indices/futures, NOT options
         completed_candles = []
         
-        # Debug: Track tick processing
-        tick_count = getattr(self, '_tick_count', 0)
-        self._tick_count = tick_count + 1
-        
-        if self._tick_count <= 5:
-            print(f"[DEBUG DataManager] Processing tick {self._tick_count}: {unified_symbol} @ {tick['ltp']}, builders: {len(self.candle_builders)}")
-        
         # Only build candles for indices and futures (not options)
         # Options only need LTP tracking, no candle building
         if self._is_index_or_future(unified_symbol):
@@ -384,14 +397,10 @@ class DataManager:
                 
                 if candle:  # Candle completed
                     completed_candles.append((timeframe, candle))
-                    if self._tick_count <= 300:  # Show first 300 completed candles
-                        print(f"[DEBUG DataManager] ✅ Candle completed: {unified_symbol} {timeframe} at {candle['timestamp']}")
         
         # Step 4: Update indicators and cache for completed candles
         for timeframe, candle in completed_candles:
             # Add to candle buffer with incremental indicator updates
-            if self._tick_count <= 300:
-                print(f"[DEBUG DataManager] Adding candle to buffer: {unified_symbol}:{timeframe}")
             self._add_to_candle_buffer(unified_symbol, timeframe, candle)
         
         # Step 5: Update forming candle in buffer (even if no candle completed)
@@ -438,22 +447,22 @@ class DataManager:
         
         # Update indicators incrementally (O(1) - super fast!)
         if key in self.indicators and self.indicators[key]:
+            # Initialize indicators dict
+            new_candle_data['indicators'] = {}
+            
             for indicator_key, indicator in self.indicators[key].items():
                 try:
                     # ✅ Incremental update (1 calculation, not 20!)
                     new_value = indicator.update(candle)
                     
-                    # Add indicator value to new candle
-                    col_name = indicator_key.replace('(', '_').replace(')', '').replace(',', '_')
-                    
                     if new_value is not None:
                         if isinstance(new_value, dict):
                             # Multi-column result (e.g., MACD)
                             for col, val in new_value.items():
-                                new_candle_data[f"{col_name}_{col}"] = val
+                                new_candle_data['indicators'][f"{indicator_key}_{col}"] = val
                         else:
-                            # Single value result
-                            new_candle_data[col_name] = new_value
+                            # Single value result - nest under 'indicators'
+                            new_candle_data['indicators'][indicator_key] = new_value
                 
                 except Exception as e:
                     import traceback
@@ -987,12 +996,6 @@ class DataManager:
             trading_day = current_timestamp.strftime('%Y-%m-%d')
             timestamp_str = current_timestamp.strftime('%Y-%m-%d %H:%M:%S')
             
-            print(f"\n🔄 Loading option ticks from ClickHouse...")
-            print(f"   Contract: {contract_key}")
-            print(f"   ClickHouse symbol: {ch_symbol}")
-            print(f"   With NFO suffix: {ch_symbol_with_nfo}")
-            print(f"   From: {timestamp_str}")
-            
             # Load ALL option ticks from current_timestamp onwards
             # Note: ticker column includes .NFO suffix
             query = f"""
@@ -1026,12 +1029,6 @@ class DataManager:
             if not option_ticks:
                 error_msg = f"⚠️  No option ticks found for {contract_key} from {timestamp_str}"
                 logger.warning(error_msg)
-                print(f"\n{error_msg}")
-                print(f"   Possible reasons:")
-                print(f"   1. Option data not loaded in ClickHouse for this date")
-                print(f"   2. Contract not traded after {timestamp_str}")
-                print(f"   3. Wrong symbol format or data quality issue")
-                print(f"   System will use fallback pricing (underlying spot price)")
                 return None
             
             # Store in buffer for tick-by-tick processing
@@ -1055,9 +1052,6 @@ class DataManager:
                 'volume': 0,
                 'oi': first_tick['oi']
             }
-            
-            print(f"   ✅ Loaded {len(option_ticks):,} option ticks")
-            print(f"   First LTP: ₹{first_ltp:.2f} at {first_tick['timestamp']}")
             logger.info(f"✅ Loaded option contract: {contract_key} - {len(option_ticks):,} ticks from {timestamp_str}")
             
             return first_ltp
@@ -1133,10 +1127,8 @@ class DataManager:
         
         for timeframe in timeframes:
             self.candle_builders[timeframe] = CandleBuilder(timeframe=timeframe)
-            print(f"[DEBUG] Created candle builder for {timeframe}")
         
         logger.info(f"   ✅ {len(timeframes)} candle builders created")
-        print(f"[DEBUG] Total candle builders: {len(self.candle_builders)}, timeframes: {list(self.candle_builders.keys())}")
     
     def _register_indicators(self, strategy: Any):
         """

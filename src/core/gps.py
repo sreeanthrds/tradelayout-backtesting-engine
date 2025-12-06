@@ -24,6 +24,8 @@ class GlobalPositionStore:
         self.overall_realized_pnl: float = 0.0
         self.overall_unrealized_pnl: float = 0.0
         self.overall_pnl: float = 0.0
+        # Position number tracking (auto-increment per position_id)
+        self.position_counters: Dict[str, int] = {}  # {position_id: next_position_num}
 
     def set_current_tick_time(self, tick_time: datetime):
         """Set the current tick time for all timestamp operations."""
@@ -33,12 +35,15 @@ class GlobalPositionStore:
         """Reset all data when strategy starts."""
         self.positions = {}
         self.node_variables = {}
+        self.position_counters = {}  # Reset position counters
         self.strategy_start_time = tick_time or self.current_tick_time
         self.day_start_time = None
 
     def reset_day(self, tick_time: Optional[datetime] = None):
         """Reset day-specific data."""
         self.day_start_time = tick_time or self.current_tick_time
+        # Reset position counters for new day
+        self.position_counters = {}
         # Keep positions and node_variables across days
 
     def add_position(self, position_id: str, entry_data: Dict[str, Any], tick_time: Optional[datetime] = None):
@@ -61,6 +66,22 @@ class GlobalPositionStore:
         elif isinstance(entry_timestamp, str):
             # ISO format string
             entry_timestamp = datetime.fromisoformat(entry_timestamp.replace('Z', '+00:00'))
+
+        # Get or initialize position_num counter for this position_id
+        if position_id not in self.position_counters:
+            self.position_counters[position_id] = 1
+        
+        position_num = self.position_counters[position_id]
+        
+        # Check if there's already an open position (CRITICAL: only one open at a time)
+        if self.has_open_position(position_id):
+            raise ValueError(
+                f"Position {position_id} already has an open transaction. "
+                f"Cannot create position_num {position_num} until previous position closes."
+            )
+        
+        # Add position_num to entry_data
+        entry_data['position_num'] = position_num
 
         # Initialize container if new position
         if position_id not in self.positions:
@@ -86,6 +107,7 @@ class GlobalPositionStore:
                 "strategy": entry_data.get("strategy", ""),
                 "node_id": entry_data.get("node_id", ""),
                 "reEntryNum": entry_data.get("reEntryNum", 0),
+                "position_num": position_num,  # Sequential position number (starts at 1)
                 "underlying_price_on_entry": entry_data.get("underlying_price_on_entry"),  # Underlying price at entry
                 "node_variables": entry_data.get("node_variables", {}),  # Node variables snapshot at entry
                 "transactions": []  # MANDATORY: Captures each order with order_id, position_id, node_id, and all order details
@@ -107,6 +129,7 @@ class GlobalPositionStore:
             "broker_order_id": entry_data.get("broker_order_id"),  # Broker's order ID
             "node_id": entry_data.get("node_id"),  # Node that created this order
             "reEntryNum": entry_data.get("reEntryNum", 0),
+            "position_num": position_num,  # Sequential position number
             "symbol": entry_data.get("symbol", ""),  # Traded symbol
             "exchange": entry_data.get("exchange", "NSE"),  # Exchange
             "side": entry_data.get("side", "buy"),  # BUY/SELL
@@ -122,6 +145,11 @@ class GlobalPositionStore:
             "pnl": None
         }
         position["transactions"].append(txn)
+        
+        # Increment counter for next position
+        self.position_counters[position_id] += 1
+        
+        
         try:
             log_info(f"GPS: add_position {position_id} reEntryNum={txn.get('reEntryNum')} txns_count={len(position['transactions'])}")
         except Exception as e:
@@ -156,6 +184,7 @@ class GlobalPositionStore:
         position["strategy"] = entry_data.get("strategy", position.get("strategy", ""))
         position["node_id"] = entry_data.get("node_id", position.get("node_id", ""))
         position["reEntryNum"] = entry_data.get("reEntryNum", 0)
+        position["position_num"] = position_num  # Update position_num
 
     def close_position(self, position_id: str, exit_data: Dict[str, Any], tick_time: Optional[datetime] = None):
         """
@@ -443,3 +472,44 @@ class GlobalPositionStore:
         """Load GPS from JSON string."""
         data = json.loads(json_str)
         self.from_dict(data)
+    
+    # Helper methods for re-entry logic
+    
+    def has_open_position(self, position_id: str) -> bool:
+        """
+        Check if position_id has any open transaction.
+        Returns True if there's an open position, False otherwise.
+        """
+        if position_id not in self.positions:
+            return False
+        
+        position = self.positions[position_id]
+        transactions = position.get("transactions", [])
+        
+        if not transactions:
+            return False
+        
+        # Check if last transaction is open
+        last_txn = transactions[-1]
+        return last_txn.get("status") == "open"
+    
+    def get_latest_position_num(self, position_id: str) -> int:
+        """
+        Get the latest (highest) position_num for this position_id.
+        Returns 0 if no positions exist yet.
+        """
+        if position_id not in self.position_counters:
+            return 0
+        
+        # Counter is already incremented, so subtract 1 to get latest
+        return self.position_counters[position_id] - 1
+    
+    def get_open_position_for_id(self, position_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the currently open position for this position_id.
+        Returns None if no open position exists.
+        """
+        if not self.has_open_position(position_id):
+            return None
+        
+        return self.positions.get(position_id)

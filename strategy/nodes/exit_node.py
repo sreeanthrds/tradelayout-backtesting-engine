@@ -676,15 +676,50 @@ class ExitNode(BaseNode):
         """
         try:
             current_timestamp = context.get('current_timestamp')
-            # Attach reEntryNum for auditing/reporting
+            
+            # OLD LOGIC: Get reEntryNum from node state (propagated from parent)
             try:
-                re_entry_num_raw = self._get_node_state(context).get('reEntryNum', 0) or 0
-                re_entry_num = int(re_entry_num_raw)
+                re_entry_num_old = self._get_node_state(context).get('reEntryNum', 0) or 0
+                re_entry_num_old = int(re_entry_num_old)
             except (ValueError, TypeError) as e:
                 raise ValueError(
-                    f"ExitNode {self.id}: Invalid reEntryNum '{re_entry_num_raw}' "
-                    f"(type: {type(re_entry_num_raw).__name__}): {e}"
+                    f"ExitNode {self.id}: Invalid reEntryNum from node_state '{re_entry_num_old}' "
+                    f"(type: {type(re_entry_num_old).__name__}): {e}"
                 ) from e
+            
+            # NEW LOGIC: Calculate reEntryNum from position_num (GPS is source of truth)
+            context_manager = context.get('context_manager')
+            gps = context_manager.gps if context_manager else None
+            if gps:
+                # Get position_num from the position being closed
+                position = gps.get_position(position_id)
+                if position:
+                    position_num = position.get('position_num', 1)
+                    re_entry_num_new = position_num - 1  # reEntryNum = position_num - 1
+                    
+                    # COMPARISON LOGGING: Compare old vs new calculation
+                    if re_entry_num_old != re_entry_num_new:
+                        log_warning(
+                            f"ExitNode {self.id}: reEntryNum MISMATCH! "
+                            f"OLD (node_state)={re_entry_num_old}, NEW (position_num-1)={re_entry_num_new}, "
+                            f"position_id={position_id}, position_num={position_num}"
+                        )
+                    else:
+                        log_info(
+                            f"ExitNode {self.id}: reEntryNum MATCH ✓ "
+                            f"value={re_entry_num_new}, position_id={position_id}"
+                        )
+                    
+                    # Use NEW calculation going forward
+                    re_entry_num = re_entry_num_new
+                else:
+                    # Position not found, fallback to old logic
+                    log_warning(f"ExitNode {self.id}: Position {position_id} not found in GPS, using old reEntryNum={re_entry_num_old}")
+                    re_entry_num = re_entry_num_old
+            else:
+                # Fallback to old logic if GPS not available
+                log_warning(f"ExitNode {self.id}: GPS not available, using old reEntryNum={re_entry_num_old}")
+                re_entry_num = re_entry_num_old
 
             # If an ExitSignalNode triggered this, capture its node_id/time/price
             trigger_node_id = None
@@ -724,11 +759,53 @@ class ExitNode(BaseNode):
                 else:
                     nifty_spot_exit = nifty_data
             
+            # DIAGNOSTIC: Retrieve diagnostic data from exit signal nodes
+            diagnostic_data = {}
+            condition_preview = None
+            
+            try:
+                node_states = context.get('node_states', {})
+                
+                # Check all node states for exit diagnostic data
+                for node_id, node_state in node_states.items():
+                    node_diagnostic = node_state.get('diagnostic_data', {})
+                    node_preview = node_state.get('condition_preview')
+                    
+                    # Check if this is an exit signal node with diagnostic data
+                    if node_diagnostic and ('exit' in node_id.lower() or 'signal' in node_id.lower()):
+                        diagnostic_data = node_diagnostic
+                        condition_preview = node_preview
+                        break  # Use first exit signal node with diagnostic data
+            except Exception as e:
+                log_warning(f"ExitNode {self.id}: Error retrieving exit diagnostic data: {e}")
+            
+            # Get node variables snapshot at exit
+            context_manager = context.get('context_manager')
+            node_variables_snapshot = {}
+            if context_manager:
+                node_variables_snapshot = dict(context_manager.gps.node_variables)
+            
+            # Get current timestamp for exit snapshot
+            current_timestamp = context.get('current_timestamp')
+            
+            # Enhanced exit snapshot
+            exit_snapshot = {
+                'timestamp': current_timestamp.isoformat() if current_timestamp and hasattr(current_timestamp, 'isoformat') else str(current_timestamp),
+                'spot_price': nifty_spot_exit,
+                'ltp_store_snapshot': dict(ltp_store) if ltp_store else {},
+                'conditions': diagnostic_data.get('conditions_evaluated', []),
+                'condition_preview': condition_preview,
+                'node_variables': node_variables_snapshot,
+                'trigger_node_id': trigger_node_id,
+                'close_reason': self.exit_config.get('reason', 'condition_met')
+            }
+            
             exit_data = {
                 'node_id': self.id,
                 'price': fill_price,  # Actual average fill price
                 'reason': 'exit_condition_met',
                 'reason_detail': self.exit_config.get('reason', 'condition_met'),
+                'close_reason': self.exit_config.get('reason', 'condition_met'),  # For compatibility
                 'trigger_node_id': trigger_node_id,
                 'trigger_time': trigger_time,
                 'trigger_price': trigger_price,
@@ -738,7 +815,12 @@ class ExitNode(BaseNode):
                 'fill_time': fill_time.isoformat() if fill_time and hasattr(fill_time, 'isoformat') else str(fill_time),
                 'fill_price': fill_price,  # Actual average fill price
                 'reEntryNum': re_entry_num,
-                'nifty_spot': nifty_spot_exit  # NIFTY spot price at exit
+                'nifty_spot': nifty_spot_exit,  # NIFTY spot price at exit
+                'underlying_price_on_exit': nifty_spot_exit,  # Alias for compatibility
+                'node_variables': node_variables_snapshot,  # Node variables at exit time
+                'diagnostic_data': diagnostic_data,  # DIAGNOSTIC: Exit condition evaluations
+                'condition_preview': condition_preview,  # DIAGNOSTIC: Human-readable exit condition text
+                'exit_snapshot': exit_snapshot  # FULL DIAGNOSTIC SNAPSHOT at exit time
             }
 
             # Close position in GPS (with tick time)

@@ -105,23 +105,18 @@ class ExitSignalNode(BaseNode):
         Returns:
             bool: True if exit conditions are met, False otherwise
         """
-        # Use this node's state for re-entry mode
-        in_reentry_mode = int(self._get_node_state(context).get('reEntryNum', 0) or 0) > 0
+        # Check if we're in re-entry mode by getting position_num from GPS
+        in_reentry_mode = self._is_in_reentry_mode(context)
         
-        # CRITICAL FIX: When in re-entry mode, ONLY evaluate re-entry conditions
-        # Do NOT fall back to regular conditions
+        # When in re-entry mode, use re-entry exit conditions if configured
+        # Otherwise fall back to normal conditions (allows flexibility)
         if in_reentry_mode:
             if not self.has_reentry_exit_conditions or not self.reentry_exit_conditions:
-                # RAISE ERROR: Re-entry conditions must be configured when in re-entry mode
-                reentry_num = self._get_node_state(context).get('reEntryNum', 0)
-                error_msg = (
-                    f"❌ CONFIGURATION ERROR in {self.id}: "
-                    f"reEntryNum={reentry_num} but no re-entry exit conditions defined! "
-                    f"You must configure re-entry exit conditions or disable re-entry."
-                )
-                log_error(error_msg)
-                raise ValueError(error_msg)
-            active_conditions = self.reentry_exit_conditions
+                # If no re-entry exit conditions configured, fall back to normal conditions
+                log_info(f"ExitSignalNode {self.id}: In re-entry mode but no re-entry exit conditions configured, using normal conditions")
+                active_conditions = self.conditions
+            else:
+                active_conditions = self.reentry_exit_conditions
         else:
             active_conditions = self.conditions
 
@@ -168,6 +163,19 @@ class ExitSignalNode(BaseNode):
         # PERFORMANCE: Conditional logging
         # if not PERFORMANCE_MODE:
         # log_info(f"   🎯 All {len(self.conditions)} exit conditions satisfied!")
+        
+        # DIAGNOSTIC: Store diagnostic data and condition preview in node state for exit node to retrieve
+        if hasattr(self.condition_evaluator, 'get_diagnostic_data'):
+            diagnostic_data = self.condition_evaluator.get_diagnostic_data()
+            
+            # Also include condition preview text
+            condition_preview = self.data.get('conditionsPreview')
+            
+            self._set_node_state(context, {
+                'diagnostic_data': diagnostic_data,
+                'condition_preview': condition_preview
+            })
+        
         return True
 
     def _setup_evaluators(self, context: Dict[str, Any]):
@@ -215,3 +223,47 @@ class ExitSignalNode(BaseNode):
             'conditions_count': len(self.conditions),
             'exit_reason': self.exit_reason
         }
+    
+    def _is_in_reentry_mode(self, context: Dict[str, Any]) -> bool:
+        """
+        Check if we're in re-entry mode by getting position_num from GPS.
+        position_num > 1 means we're in re-entry mode (position 2, 3, etc.)
+        
+        Args:
+            context: Execution context
+            
+        Returns:
+            bool: True if position_num > 1 (re-entry mode), False otherwise
+        """
+        try:
+            # Get the position_id that this exit signal is monitoring
+            # We need to find the associated entry node
+            node_instances = context.get('node_instances', {})
+            
+            # Search for entry nodes to get position_id
+            # Exit signals are typically children of entry nodes or parallel to them
+            position_id = None
+            
+            # Try to get position_id from GPS by looking at open positions
+            context_manager = context.get('context_manager')
+            if not context_manager:
+                return False
+            
+            gps = context_manager.gps
+            
+            # Check if there are any open positions
+            if not gps.positions:
+                return False
+            
+            # Get the first open position (assumes single position trading)
+            for pos_id, pos_data in gps.positions.items():
+                if pos_data.get('status') == 'open':
+                    position_num = pos_data.get('position_num', 1)
+                    # In re-entry mode if position_num > 1
+                    return position_num > 1
+            
+            return False
+            
+        except Exception as e:
+            log_warning(f"ExitSignalNode {self.id}: Error checking re-entry mode: {e}")
+            return False

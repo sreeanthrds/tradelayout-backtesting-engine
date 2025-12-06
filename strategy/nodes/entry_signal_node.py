@@ -71,16 +71,8 @@ class EntrySignalNode(BaseNode):
         Returns:
             Dict containing execution results with 'logic_completed' flag
         """
-        # If entering re-entry mode, allow a fresh trigger by resetting the one-shot flag
-        try:
-            re_entry_num_raw = self._get_node_state(context).get('reEntryNum', 0) or 0
-            re_entry_num = int(re_entry_num_raw)
-            in_reentry_mode_boot = re_entry_num > 0
-        except (ValueError, TypeError) as e:
-            raise ValueError(
-                f"EntrySignalNode {self.id}: Invalid reEntryNum '{re_entry_num_raw}' "
-                f"(type: {type(re_entry_num_raw).__name__}): {e}"
-            ) from e
+        # Check if we're in re-entry mode by getting position_num from GPS
+        in_reentry_mode_boot = self._is_in_reentry_mode(context)
 
         # Check if signal already triggered (one-shot per mode). Reset in re-entry mode.
         if self.signal_triggered and not in_reentry_mode_boot:
@@ -155,23 +147,19 @@ class EntrySignalNode(BaseNode):
         Returns:
             bool: True if all conditions are satisfied
         """
-        # Choose condition set depending on re-entry mode
-        in_reentry_mode = int(self._get_node_state(context).get('reEntryNum', 0) or 0) > 0
+        # Choose condition set depending on re-entry mode (using position_num from GPS)
+        in_reentry_mode = self._is_in_reentry_mode(context)
         
         # CRITICAL: When in re-entry mode, ONLY evaluate re-entry conditions
         # Do NOT fall back to regular conditions
         if in_reentry_mode:
             if not self.has_reentry_conditions or not self.reentry_conditions:
-                # RAISE ERROR: Re-entry conditions must be configured when in re-entry mode
-                reentry_num = self._get_node_state(context).get('reEntryNum', 0)
-                error_msg = (
-                    f"❌ CONFIGURATION ERROR in {self.id}: "
-                    f"reEntryNum={reentry_num} but no re-entry entry conditions defined! "
-                    f"You must configure re-entry conditions or disable re-entry."
-                )
-                log_error(error_msg)
-                raise ValueError(error_msg)
-            active_conditions = self.reentry_conditions
+                # If no re-entry conditions configured, fall back to normal conditions
+                # (This allows flexibility - re-entry conditions are optional)
+                log_info(f"EntrySignalNode {self.id}: In re-entry mode but no re-entry conditions configured, using normal conditions")
+                active_conditions = self.conditions
+            else:
+                active_conditions = self.reentry_conditions
         else:
             active_conditions = self.conditions
 
@@ -188,6 +176,10 @@ class EntrySignalNode(BaseNode):
         # if not PERFORMANCE_MODE:
         # log_info(f"   Evaluating {len(self.conditions)} condition(s):")
 
+        # Reset diagnostic data before evaluation to capture fresh data
+        if hasattr(self.condition_evaluator, 'reset_diagnostic_data'):
+            self.condition_evaluator.reset_diagnostic_data()
+        
         # For now, let's handle simple conditions first
         # Each condition in the list should be satisfied (AND logic)
         for i, condition in enumerate(active_conditions):
@@ -216,6 +208,22 @@ class EntrySignalNode(BaseNode):
                 
                 # Re-raise - condition evaluation errors are critical
                 raise RuntimeError(f"EntrySignalNode {self.id}: Condition evaluation failed: {e}") from e
+        
+        # DIAGNOSTIC: Store diagnostic data and condition preview in node state for entry node to retrieve
+        if hasattr(self.condition_evaluator, 'get_diagnostic_data'):
+            diagnostic_data = self.condition_evaluator.get_diagnostic_data()
+            
+            # Also include condition preview text
+            condition_preview = None
+            if in_reentry_mode and self.has_reentry_conditions:
+                condition_preview = self.data.get('reEntryConditionsPreview')
+            else:
+                condition_preview = self.data.get('conditionsPreview')
+            
+            self._set_node_state(context, {
+                'diagnostic_data': diagnostic_data,
+                'condition_preview': condition_preview
+            })
         
         return True
 
@@ -599,3 +607,42 @@ class EntrySignalNode(BaseNode):
         """
         # For EntrySignalNode, we call the template method execute()
         return self.execute(data)
+    
+    def _is_in_reentry_mode(self, context: Dict[str, Any]) -> bool:
+        """
+        Check if we're in re-entry mode by getting position_num from GPS.
+        
+        Args:
+            context: Execution context
+            
+        Returns:
+            bool: True if position_num > 0 (re-entry mode), False otherwise
+        """
+        try:
+            # Get position_id from first child (should be EntryNode)
+            node_instances = context.get('node_instances', {})
+            if not self.children:
+                return False
+            
+            entry_node_id = self.children[0]
+            entry_node = node_instances.get(entry_node_id)
+            
+            if not entry_node or not hasattr(entry_node, 'get_position_id'):
+                return False
+            
+            position_id = entry_node.get_position_id(context)
+            
+            # Get GPS
+            context_manager = context.get('context_manager')
+            if not context_manager:
+                return False
+            
+            gps = context_manager.gps
+            latest_position_num = gps.get_latest_position_num(position_id)
+            
+            # In re-entry mode if position_num > 0
+            return latest_position_num > 0
+            
+        except Exception as e:
+            log_warning(f"EntrySignalNode {self.id}: Error checking re-entry mode: {e}")
+            return False

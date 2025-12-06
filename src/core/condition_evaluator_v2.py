@@ -15,22 +15,36 @@ class ConditionEvaluator:
     Provides modular functions for different evaluation tasks.
     """
 
-    def __init__(self, expression_evaluator=None, mode='backtesting'):
+    def __init__(self, context=None, condition=None, expression_evaluator=None, mode='backtesting'):
         """
-        Initialize the condition evaluator.
+        Initialize ConditionEvaluatorV2.
         
         Args:
-            expression_evaluator: ExpressionEvaluator instance for complex expressions
+            context: Optional execution context
+            condition: Optional initial condition to evaluate
+            expression_evaluator: Optional ExpressionEvaluator instance
             mode: Evaluation mode ('backtesting' or 'live_trading')
         """
         self.mode = mode
-        self.expression_evaluator = expression_evaluator
-        self.context = {}  # Initialize context
-        self.condition = None  # Initialize condition
-
-        # If no expression_evaluator provided, create one
-        if self.expression_evaluator is None:
+        self.context = context or {}
+        self.condition = condition
+        
+        # Use provided evaluator or create new one
+        if expression_evaluator is not None:
+            self.expression_evaluator = expression_evaluator
+        else:
             self.expression_evaluator = ExpressionEvaluator()
+            self.expression_evaluator.set_context(context=self.context)
+        
+        # Store last evaluation result for debugging
+        self.last_evaluation_result = None
+        
+        # Store diagnostic information for detailed analysis
+        self.diagnostic_data = {
+            'conditions_evaluated': [],
+            'expression_values': {},
+            'candle_data': {}
+        }
 
     def set_condition(self, condition):
         """
@@ -71,6 +85,60 @@ class ConditionEvaluator:
                 'candles_df': candles_df
             }
         return self
+    
+    def reset_diagnostic_data(self):
+        """Reset diagnostic data for a new evaluation"""
+        self.diagnostic_data = {
+            'conditions_evaluated': [],
+            'expression_values': {},
+            'candle_data': {}
+        }
+    
+    def get_diagnostic_data(self):
+        """Get captured diagnostic data from the last evaluation"""
+        return self.diagnostic_data.copy()
+    
+    def _capture_candle_data(self):
+        """Capture current and previous candle data for diagnostic purposes"""
+        candle_cache = self.context.get('candle_cache') or self.context.get('candle_df_dict', {})
+        if candle_cache:
+            # Store current candle for primary instruments
+            for key, candles in candle_cache.items():
+                if ':1m' in key or ':tf_1m' in key:  # Only 1-minute candles
+                    symbol = key.replace(':1m', '').replace(':tf_1m_default', '').replace(':tf_1m', '')
+                    if isinstance(candles, list):
+                        # List format (backtesting)
+                        self.diagnostic_data['candle_data'][symbol] = {
+                            'current': candles[-1] if candles else {},
+                            'previous': candles[-2] if len(candles) >= 2 else {}
+                        }
+                    else:
+                        # DataFrame or builder format
+                        import pandas as pd
+                        df = None
+                        if isinstance(candles, pd.DataFrame):
+                            df = candles
+                        elif hasattr(candles, 'get_dataframe'):
+                            df = candles.get_dataframe()
+                        
+                        if df is not None and len(df) > 0:
+                            current = df.iloc[-1].to_dict() if len(df) > 0 else {}
+                            previous = df.iloc[-2].to_dict() if len(df) >= 2 else {}
+                            self.diagnostic_data['candle_data'][symbol] = {
+                                'current': current,
+                                'previous': previous
+                            }
+
+    def clear_diagnostic_data(self):
+        """
+        Clear diagnostic data to avoid accumulation across ticks.
+        Should be called before each evaluation to store only current tick's data.
+        """
+        self.diagnostic_data = {
+            'conditions_evaluated': [],
+            'expression_values': {},
+            'candle_data': {}
+        }
 
     def evaluate_condition(self, condition=None):
         """
@@ -87,6 +155,9 @@ class ConditionEvaluator:
 
         if condition is None:
             return False
+
+        # Clear diagnostic data to avoid accumulation from previous ticks
+        self.clear_diagnostic_data()
 
         # Store the evaluation result for access by nodes
         result = self._evaluate_recursive(condition)
@@ -115,6 +186,9 @@ class ConditionEvaluator:
 
         if condition is None:
             return False
+
+        # Clear diagnostic data to avoid accumulation from previous ticks
+        self.clear_diagnostic_data()
 
         # Store the evaluation result for access by nodes
         result = self._evaluate_recursive_stage1(condition)
@@ -296,8 +370,42 @@ class ConditionEvaluator:
             rhs_value = self._evaluate_value(condition['rhs'], current_timestamp)
             operator = condition['operator']
             
+            # DIAGNOSTIC: Capture expression values for detailed analysis
+            # Build human-readable text
+            lhs_text = self._expression_to_text(condition.get('lhs'))
+            rhs_text = self._expression_to_text(condition.get('rhs'))
+            
             # Apply operator and return result
-            return self._apply_operator(lhs_value, operator, rhs_value)
+            result = self._apply_operator(lhs_value, operator, rhs_value)
+            
+            # Format values for display
+            lhs_display = f"{lhs_value:.2f}" if isinstance(lhs_value, (int, float)) else str(lhs_value)
+            rhs_display = f"{rhs_value:.2f}" if isinstance(rhs_value, (int, float)) else str(rhs_value)
+            result_icon = '✓' if result else '✗'
+            
+            # Build condition text with values
+            condition_text = f"{lhs_text} {operator} {rhs_text}  [{lhs_display} {operator} {rhs_display}] {result_icon}"
+            
+            condition_diagnostic = {
+                'lhs_expression': condition.get('lhs'),
+                'rhs_expression': condition.get('rhs'),
+                'lhs_value': lhs_value,
+                'rhs_value': rhs_value,
+                'operator': operator,
+                'timestamp': str(current_timestamp),
+                'tick_count': self.context.get('tick_count', 0),
+                'result': result,
+                'condition_type': 'live',
+                'condition_text': condition_text  # Human-readable text with values
+            }
+            
+            # Store in diagnostic data
+            self.diagnostic_data['conditions_evaluated'].append(condition_diagnostic)
+            
+            # Capture candle data using centralized function
+            self._capture_candle_data()
+            
+            return result
         except Exception as e:
             import traceback
             log_error(f"❌ CRITICAL: Error evaluating live data condition: {e}")
@@ -602,7 +710,41 @@ class ConditionEvaluator:
             except Exception as log_err:
                 log_warning(f"ConditionEvaluator debug logging failed: {log_err}")
 
-            return self._apply_operator(lhs_value, operator, rhs_value)
+            # DIAGNOSTIC: Capture expression values for detailed analysis (non-live conditions)
+            # Build human-readable text
+            lhs_text = self._expression_to_text(condition.get('lhs'))
+            rhs_text = self._expression_to_text(condition.get('rhs'))
+            
+            # Apply operator and return result
+            result = self._apply_operator(lhs_value, operator, rhs_value)
+            
+            # Format values for display
+            lhs_display = f"{lhs_value:.2f}" if isinstance(lhs_value, (int, float)) else str(lhs_value)
+            rhs_display = f"{rhs_value:.2f}" if isinstance(rhs_value, (int, float)) else str(rhs_value)
+            result_icon = '✓' if result else '✗'
+            
+            # Build condition text with values
+            condition_text = f"{lhs_text} {operator} {rhs_text}  [{lhs_display} {operator} {rhs_display}] {result_icon}"
+            
+            condition_diagnostic = {
+                'lhs_expression': condition.get('lhs'),
+                'rhs_expression': condition.get('rhs'),
+                'lhs_value': lhs_value,
+                'rhs_value': rhs_value,
+                'operator': operator,
+                'timestamp': str(current_timestamp) if current_timestamp else None,
+                'condition_type': 'non_live',
+                'result': result,
+                'condition_text': condition_text  # Human-readable text with values
+            }
+            
+            # Store in diagnostic data
+            self.diagnostic_data['conditions_evaluated'].append(condition_diagnostic)
+            
+            # Capture candle data if available
+            self._capture_candle_data()
+
+            return result
         except Exception as e:
             import traceback
             log_error(f"❌ CRITICAL: Error evaluating non-live condition: {e}")
@@ -636,3 +778,81 @@ class ConditionEvaluator:
 
         # Use ExpressionEvaluator to handle all value types without data_processor
         return self.expression_evaluator.evaluate(value_config)
+    
+    def _expression_to_text(self, expr):
+        """
+        Convert expression JSON to human-readable text.
+        
+        Args:
+            expr: Expression configuration (dict, number, or string)
+            
+        Returns:
+            str: Human-readable expression text
+        """
+        if expr is None:
+            return "null"
+        
+        # Handle simple values
+        if isinstance(expr, (int, float)):
+            return str(expr)
+        if isinstance(expr, str):
+            return expr
+        if not isinstance(expr, dict):
+            return str(expr)
+        
+        expr_type = expr.get('type', '')
+        
+        # Indicator
+        if expr_type == 'indicator':
+            name = expr.get('name', 'INDICATOR')
+            symbol = expr.get('symbol', '')
+            timeframe = expr.get('timeframe', '')
+            params = expr.get('params', {})
+            
+            # Build parameter text
+            param_text = f"{symbol}, {timeframe}"
+            if params:
+                param_values = ', '.join([f"{k}={v}" for k, v in params.items() if k not in ['symbol', 'timeframe']])
+                if param_values:
+                    param_text += f", {param_values}"
+            
+            return f"{name}({param_text})"
+        
+        # Candle field
+        elif expr_type == 'candle':
+            field = expr.get('field', 'close')
+            symbol = expr.get('symbol', '')
+            offset = expr.get('offset', 0)
+            offset_text = f"[{offset}]" if offset != 0 else ""
+            return f"{symbol}.{field}{offset_text}"
+        
+        # Live data (LTP)
+        elif expr_type == 'live_data':
+            symbol = expr.get('symbol', '')
+            field = expr.get('field', 'ltp')
+            return f"{symbol}.{field}"
+        
+        # Node variable
+        elif expr_type == 'node_variable':
+            node_id = expr.get('nodeId', 'NODE')
+            var_name = expr.get('variableName', 'VAR')
+            return f"{node_id}.{var_name}"
+        
+        # Expression (nested)
+        elif expr_type == 'expression':
+            left = self._expression_to_text(expr.get('left'))
+            right = self._expression_to_text(expr.get('right'))
+            op = expr.get('operator', '+')
+            return f"({left} {op} {right})"
+        
+        # Constant/number
+        elif expr_type == 'number' or expr_type == 'constant':
+            return str(expr.get('value', 0))
+        
+        # Time
+        elif expr_type == 'time':
+            field = expr.get('field', 'time')
+            return f"TIME.{field}"
+        
+        # Fallback
+        return str(expr)

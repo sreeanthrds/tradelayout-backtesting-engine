@@ -4,6 +4,7 @@ from .base_node import BaseNode
 from src.core.condition_evaluator_v2 import ConditionEvaluator
 from src.core.expression_evaluator import ExpressionEvaluator
 from src.utils.logger import log_info, log_warning, log_error, log_critical
+from src.utils.ltp_filter import filter_ltp_store
 
 
 class ReEntrySignalNode(BaseNode):
@@ -176,8 +177,24 @@ class ReEntrySignalNode(BaseNode):
         if not self.conditions:
             log_warning(f"ReEntrySignalNode {self.id}: No conditions configured")
             return False
+        
+        # Reset diagnostic data before evaluation to capture fresh data
+        if hasattr(self.condition_evaluator, 'reset_diagnostic_data'):
+            self.condition_evaluator.reset_diagnostic_data()
+        
         try:
             result = self.condition_evaluator.evaluate_condition(self.conditions[0] if isinstance(self.conditions, list) else self.conditions)
+            
+            # DIAGNOSTIC: Store diagnostic data in node state for _get_evaluation_data to retrieve
+            if hasattr(self.condition_evaluator, 'get_diagnostic_data'):
+                diagnostic_data = self.condition_evaluator.get_diagnostic_data()
+                condition_preview = self.data.get('conditionsPreview', '')
+                
+                self._set_node_state(context, {
+                    'diagnostic_data': diagnostic_data,
+                    'condition_preview': condition_preview
+                })
+            
             if isinstance(result, dict):
                 return bool(result.get('satisfied', False))
             return bool(result)
@@ -275,5 +292,71 @@ class ReEntrySignalNode(BaseNode):
                 # This is crucial for re-entry to work properly
                 if hasattr(child_node, 'reset'):
                     child_node.reset(context)
+
+    def _get_evaluation_data(self, context: Dict[str, Any], node_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract evaluation data for re-entry signal execution.
+        
+        Captures condition details and evaluated values for diagnostics display.
+        This allows UI to show exactly what conditions were checked and their values.
+        
+        Args:
+            context: Execution context
+            node_result: Result from _execute_node_logic
+            
+        Returns:
+            Dictionary with condition evaluation data
+        """
+        evaluation_data = {}
+        
+        # Get stored diagnostic data from node state
+        node_state = self._get_node_state(context)
+        diagnostic_data = node_state.get('diagnostic_data', {})
+        condition_preview = node_state.get('condition_preview', '')
+        
+        # Add condition information
+        evaluation_data['condition_type'] = 're_entry_conditions'
+        evaluation_data['conditions_preview'] = condition_preview
+        evaluation_data['signal_emitted'] = node_result.get('signal_emitted', False)
+        
+        # Add evaluated conditions with raw and evaluated format
+        if diagnostic_data:
+            evaluation_data['evaluated_conditions'] = diagnostic_data
+        
+        # Add re-entry metadata
+        re_entry_num = int(node_state.get('reEntryNum', 0) or 0)
+        max_re_entries = int(self.retry_config.get('maxReEntries', 0) or 0)
+        evaluation_data['re_entry_metadata'] = {
+            'current_re_entry_num': re_entry_num,
+            'max_re_entries': max_re_entries,
+            'remaining_attempts': max(0, max_re_entries - re_entry_num)
+        }
+        
+        # Add signal metadata if triggered
+        if node_result.get('signal_emitted'):
+            variables = node_result.get('node_variables', {})
+            evaluation_data['variables_calculated'] = list(variables.keys()) if variables else []
+            
+            # Add full node variables with expression preview and evaluated values
+            if variables and self.variables_config:
+                node_vars_details = {}
+                for var_config in self.variables_config:
+                    var_name = var_config.get('name')
+                    if var_name in variables:
+                        node_vars_details[var_name] = {
+                            'expression_preview': var_config.get('expressionPreview', ''),
+                            'value': variables[var_name]
+                        }
+                evaluation_data['node_variables'] = node_vars_details
+        
+        # Add filtered LTP store (only TI, SI, and symbols used in conditions)
+        # Condition nodes need LTP data to show what prices were evaluated
+        evaluation_data['ltp_store'] = filter_ltp_store(
+            context.get('ltp_store', {}),
+            context,
+            []  # No position symbols yet - just TI/SI and accessed symbols
+        )
+        
+        return evaluation_data
 
 

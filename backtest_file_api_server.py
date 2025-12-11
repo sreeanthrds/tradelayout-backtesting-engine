@@ -28,15 +28,11 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://id-preview--f831a655-ac74-4af1-86b8-350112baffa6.lovable.app",  # Actual UI origin
-        "https://f831a655-ac74-4af1-86b8-350112baffa6.lovableproject.com",
-        "http://localhost:5173",  # local dev
-        "http://localhost:3000",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins including lovableproject.com
+    allow_credentials=False,  # Set to False when using wildcard origin
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Get singletons
@@ -377,6 +373,35 @@ async def shutdown_event():
 # ============================================================================
 # Run Server
 # ============================================================================
+
+@app.get("/api/v1/backtest/dashboard/{date}")
+async def get_dashboard_data(date: str):
+    """
+    Get dashboard data from root directory JSON files
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        Dashboard data with positions and summary
+    """
+    import os
+    import json
+    
+    # Construct filename
+    filename = f"backtest_dashboard_data_{date}.json"
+    filepath = os.path.join(os.path.dirname(__file__), filename)
+    
+    if not os.path.exists(filepath):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No dashboard data found for date {date}"
+        )
+    
+    # Read and return the JSON file
+    with open(filepath, 'r') as f:
+        return json.load(f)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -77,6 +77,20 @@ class DataManager:
         # Clickhouse client (will be initialized during initialize())
         self.clickhouse_client = None
         
+        # Candle builders per symbol (unified format)
+        self.candle_builders: Dict[str, Dict[str, Any]] = {}
+        
+        # LTP store
+        self.ltp_store: Dict[str, float] = {}
+        
+        # Indicator key mappings: database_key → generated_key
+        # Format: {"NIFTY:1m": {"rsi_1764509210372": "rsi(14,close)", ...}}
+        self.indicator_key_mappings: Dict[str, Dict[str, str]] = {}
+        
+        # Backtesting attributes
+        self.clickhouse_client = None
+        self.backtest_date = None
+        
         # Option tick buffers for on-demand loading
         # Format: {contract_key: {'ticks': deque, 'current_index': int}}
         self.option_tick_buffers = {}
@@ -90,7 +104,8 @@ class DataManager:
         self,
         symbol: str,
         timeframe: str,
-        indicator: Any
+        indicator: Any,
+        database_key: Optional[str] = None
     ) -> str:
         """
         Register an indicator for calculation.
@@ -99,6 +114,7 @@ class DataManager:
             symbol: Unified symbol (e.g., 'NIFTY')
             timeframe: Timeframe (e.g., '1m', '5m')
             indicator: Indicator object with name and params attributes
+            database_key: Original database key (e.g., 'rsi_1764509210372')
         
         Returns:
             indicator_key: Generated key (e.g., 'RSI(14)', 'BBAND(14,2)')
@@ -108,13 +124,21 @@ class DataManager:
         if key not in self.indicators:
             self.indicators[key] = {}
         
+        if key not in self.indicator_key_mappings:
+            self.indicator_key_mappings[key] = {}
+        
         # Generate indicator key (function-like format)
         indicator_key = self._generate_indicator_key(indicator.name, indicator.params)
         
         # Store indicator instance
         self.indicators[key][indicator_key] = indicator
         
-        logger.info(f"📈 Registered {indicator_key} for {symbol}:{timeframe}")
+        # Store mapping: database_key → generated_key
+        if database_key:
+            self.indicator_key_mappings[key][database_key] = indicator_key
+            logger.info(f"📈 Registered {indicator_key} for {symbol}:{timeframe} (database_key: {database_key})")
+        else:
+            logger.info(f"📈 Registered {indicator_key} for {symbol}:{timeframe}")
         
         return indicator_key
     
@@ -166,8 +190,10 @@ class DataManager:
         
         if has_indicators:
             logger.info(f"🔄 Initializing {len(self.indicators[key])} indicators for {key} with {len(candles)} candles")
+            print(f"   DEBUG: self.indicators[{key}] = {self.indicators[key]}")
         else:
             logger.info(f"📊 Loading {len(candles)} historical candles for {key} (no indicators)")
+            print(f"   DEBUG: NO INDICATORS - self.indicators keys = {list(self.indicators.keys())}")
         
         # Initialize each ta_hybrid indicator instance (only if indicators registered)
         if has_indicators:
@@ -298,6 +324,12 @@ class DataManager:
                             candle_dict['indicators'][indicator_key] = row[col_name]
                 
                 candles_list.append(candle_dict)
+            
+            # DEBUG: Check if indicators are in the candles
+            if candles_list:
+                print(f"   DEBUG: Last candle keys = {list(candles_list[-1].keys())}")
+                if 'indicators' in candles_list[-1]:
+                    print(f"   DEBUG: Indicators in last candle = {candles_list[-1]['indicators']}")
             
             self.cache.set_candles(symbol, timeframe, candles_list)
             
@@ -545,6 +577,8 @@ class DataManager:
         
         # Store back in cache
         self.cache.set_candles(symbol, timeframe, buffer)
+        
+        # DEBUG (disabled)
     
     def get_context(self) -> Dict[str, Any]:
         """
@@ -580,6 +614,7 @@ class DataManager:
                 symbol, timeframe = key.split(':', 1)
                 candles = self.cache.get_candles(symbol, timeframe, count=20)
                 if candles is not None and len(candles) > 0:
+                    # DEBUG (disabled)
                     candle_df_dict[key] = candles
         
         # SIMPLIFIED: Only expose what strategies actually need
@@ -750,6 +785,10 @@ class DataManager:
         else:
             self._load_historical_candles(strategy, backtest_date)
         
+        # DEBUG flags (disabled)
+        # self._first_buffer_check = True
+        # self._debug_context_check = True
+        
         logger.info("✅ DataManager initialized")
     
     def initialize_for_live(
@@ -904,22 +943,45 @@ class DataManager:
         """Initialize ClickHouse client for historical data."""
         logger.info("   Initializing ClickHouse...")
         
-        import clickhouse_connect
-        from src.config.clickhouse_config import ClickHouseConfig
-        
-        self.clickhouse_client = clickhouse_connect.get_client(
-            host=ClickHouseConfig.HOST,
-            user=ClickHouseConfig.USER,
-            password=ClickHouseConfig.PASSWORD,
-            secure=ClickHouseConfig.SECURE,
-            database=ClickHouseConfig.DATABASE
-        )
-        
-        logger.info("   ✅ ClickHouse client initialized")
+        try:
+            import clickhouse_connect
+            from src.config.clickhouse_config import ClickHouseConfig
+            
+            client = clickhouse_connect.get_client(
+                host=ClickHouseConfig.HOST,
+                user=ClickHouseConfig.USER,
+                password=ClickHouseConfig.PASSWORD,
+                secure=ClickHouseConfig.SECURE,
+                database=ClickHouseConfig.DATABASE
+            )
+            
+            # Test if required table exists
+            result = client.command("EXISTS TABLE nse_ohlcv_indices")
+            if result == 1:
+                self.clickhouse_client = client
+                logger.info("   ✅ ClickHouse client initialized with data tables")
+            else:
+                logger.warning("   ⚠️  ClickHouse connected but nse_ohlcv_indices table not found")
+                logger.warning("   ⚠️  Running in backtest-only mode (using pre-loaded data)")
+                self.clickhouse_client = None
+                
+        except Exception as e:
+            logger.warning(f"   ⚠️  ClickHouse connection failed: {e}")
+            logger.warning("   ⚠️  Running in backtest-only mode (no live ClickHouse queries)")
+            self.clickhouse_client = None
+            # Backtesting with pre-loaded data will still work
     
     def _initialize_option_components(self):
         """Initialize lazy option loader and pattern resolver."""
         logger.info("   Initializing option components...")
+        
+        # Skip option loader if no ClickHouse client (backtest-only mode)
+        if self.clickhouse_client is None:
+            logger.warning("   ⚠️  Skipping option loader (no ClickHouse connection)")
+            logger.info("   ℹ️  Pre-loaded option data will be used if available")
+            self.option_loader = None
+            self.pattern_resolver = None
+            return
         
         try:
             from src.backtesting.lazy_option_loader import LazyOptionLoader
@@ -1154,6 +1216,10 @@ class DataManager:
             
             for indicator_metadata in indicators:
                 try:
+                    print(f"   DEBUG: indicator_metadata.key = {indicator_metadata.key}")
+                    print(f"   DEBUG: indicator_metadata.name = {indicator_metadata.name}")
+                    print(f"   DEBUG: indicator_metadata.params = {indicator_metadata.params}")
+                    
                     # Get indicator class from ta_hybrid registry
                     indicator_name = indicator_metadata.name.lower()
                     indicator_class = ta._INDICATOR_REGISTRY.get(indicator_name)
@@ -1165,11 +1231,12 @@ class DataManager:
                     # Create ta_hybrid indicator instance
                     indicator = indicator_class(**indicator_metadata.params)
                     
-                    # Register with data manager
+                    # Register with data manager (pass database key for mapping)
                     indicator_key = self.register_indicator(
                         symbol=symbol,
                         timeframe=timeframe,
-                        indicator=indicator
+                        indicator=indicator,
+                        database_key=indicator_metadata.key  # Map database key to generated key
                     )
                     
                     if indicator_key:
@@ -1199,45 +1266,55 @@ class DataManager:
             strategy: StrategyMetadata object
             backtest_date: Date to run backtest on
         """
+        # Skip historical loading if no ClickHouse client (backtest-only mode)
+        if self.clickhouse_client is None:
+            logger.warning("   ⚠️  Skipping historical candle loading (no ClickHouse connection)")
+            logger.info("   ℹ️  Will build candles from pre-loaded tick data")
+            return
+        
         logger.info("   Loading historical candles from ClickHouse...")
         
-        for timeframe in strategy.get_timeframes():
-            query = f"""
-                SELECT 
-                    timestamp,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume,
-                    symbol,
-                    timeframe
-                FROM nse_ohlcv_indices
-                WHERE symbol IN ({','.join(f"'{s}'" for s in strategy.get_symbols())})
-                  AND timeframe = '{timeframe}'
-                  AND timestamp < '{backtest_date.strftime('%Y-%m-%d')} 09:15:00'
-                ORDER BY timestamp DESC
-                LIMIT 500
-            """
-            
-            # Direct to DataFrame (10-15x faster than manual iteration)
-            df = self.clickhouse_client.query_df(query)
-            
-            if not df.empty:
-                # Reverse to chronological order (query was DESC to get most recent)
-                df = df.sort_values('timestamp', ascending=True)
+        try:
+            for timeframe in strategy.get_timeframes():
+                query = f"""
+                    SELECT 
+                        timestamp,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume,
+                        symbol,
+                        timeframe
+                    FROM nse_ohlcv_indices
+                    WHERE symbol IN ({','.join(f"'{s}'" for s in strategy.get_symbols())})
+                      AND timeframe = '{timeframe}'
+                      AND timestamp < '{backtest_date.strftime('%Y-%m-%d')} 09:15:00'
+                    ORDER BY timestamp DESC
+                    LIMIT 500
+                """
                 
-                # Debug: Show date range of historical data
-                logger.info(f"   📅 Historical data range: {df['timestamp'].min()} to {df['timestamp'].max()}")
+                # Direct to DataFrame (10-15x faster than manual iteration)
+                df = self.clickhouse_client.query_df(query)
                 
-                # Load into DataManager for each symbol
-                for symbol in strategy.get_symbols():
-                    symbol_df = df[df['symbol'] == symbol]
-                    if not symbol_df.empty:
-                        self.initialize_from_historical_data(symbol, timeframe, symbol_df)
-                        logger.info(f"   ✅ {timeframe}: Loaded {len(symbol_df)} candles for {symbol}")
-            else:
-                logger.info(f"   ℹ️  {timeframe}: No historical candles (will build from ticks)")
+                if not df.empty:
+                    # Reverse to chronological order (query was DESC to get most recent)
+                    df = df.sort_values('timestamp', ascending=True)
+                    
+                    # Debug: Show date range of historical data
+                    logger.info(f"   📅 Historical data range: {df['timestamp'].min()} to {df['timestamp'].max()}")
+                    
+                    # Load into DataManager for each symbol
+                    for symbol in strategy.get_symbols():
+                        symbol_df = df[df['symbol'] == symbol]
+                        if not symbol_df.empty:
+                            self.initialize_from_historical_data(symbol, timeframe, symbol_df)
+                            logger.info(f"   ✅ {timeframe}: Loaded {len(symbol_df)} candles for {symbol}")
+                else:
+                    logger.info(f"   ℹ️  {timeframe}: No historical candles (will build from ticks)")
+        except Exception as e:
+            logger.warning(f"   ⚠️  Failed to load historical candles: {e}")
+            logger.info("   ℹ️  Will build candles from pre-loaded tick data")
     
     def _register_indicators_from_agg(self, strategies_agg: Dict[str, Any]):
         """
@@ -1272,11 +1349,15 @@ class DataManager:
                         params = ind_meta.get('params', {})
                         indicator = indicator_class(**params)
                         
-                        # Register with data manager
+                        # Extract database key (e.g., 'rsi_1764509210372') from metadata
+                        database_key = ind_meta.get('key')
+                        
+                        # Register with data manager (pass database key for mapping)
                         indicator_key = self.register_indicator(
                             symbol=symbol,
                             timeframe=timeframe,
-                            indicator=indicator
+                            indicator=indicator,
+                            database_key=database_key
                         )
                         
                         if indicator_key:
@@ -1305,6 +1386,12 @@ class DataManager:
             strategies_agg: Aggregated metadata with timeframes list
             backtest_date: Date to run backtest on
         """
+        # Skip if no ClickHouse client (backtest-only mode)
+        if self.clickhouse_client is None:
+            logger.warning("   ⚠️  Skipping historical candle loading (no ClickHouse connection)")
+            logger.info("   ℹ️  Will build candles from pre-loaded tick data")
+            return
+        
         logger.info("   Loading historical candles from ClickHouse (aggregated)...")
         
         # Parse timeframes to get unique symbol-timeframe pairs

@@ -152,6 +152,8 @@ class SquareOffNode(BaseNode):
         # Step 2: Close all open positions
         context_manager = context.get('context_manager')
         closed_count = 0
+        closed_positions = []  # Track positions being closed for diagnostics
+        
         if context_manager:
             gps = context_manager.get_gps()
             open_positions = gps.get_open_positions()
@@ -196,6 +198,9 @@ class SquareOffNode(BaseNode):
                     else:
                         nifty_spot_exit = nifty_data
                 
+                # Get re_entry_num from the POSITION itself, not from square-off node state
+                re_entry_num = position.get('re_entry_num', position.get('reEntryNum', 0))
+                
                 exit_data = {
                     'reason': 'square_off',
                     'reason_detail': reason,  # Use the actual reason (time_based_exit, immediate_exit_enabled, etc.)
@@ -203,6 +208,18 @@ class SquareOffNode(BaseNode):
                     'node_id': self.id,
                     'nifty_spot': nifty_spot_exit  # NIFTY spot price at exit
                 }
+                
+                # Track position being closed for diagnostics
+                closed_positions.append({
+                    'position_id': position_id,
+                    're_entry_num': re_entry_num,  # Now correctly from position
+                    'symbol': position_symbol,
+                    'side': position.get('side'),
+                    'quantity': position.get('quantity'),
+                    'entry_price': position.get('entry_price'),
+                    'exit_price': exit_price
+                })
+                
                 # Use BaseNode helper to ensure reEntryNum is attached
                 self.close_position(context, position_id, exit_data)
                 closed_count += 1
@@ -237,9 +254,116 @@ class SquareOffNode(BaseNode):
             'condition_type': condition_type,
             'orders_cancelled': cancelled_count,
             'positions_closed': closed_count,
+            'closed_positions_list': closed_positions,  # List of positions closed for diagnostics
             'details': details,
             'logic_completed': True  # Becomes Inactive, job complete
         }
+    
+    def _get_evaluation_data(self, context: Dict[str, Any], node_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract diagnostic data for square-off execution.
+        
+        Captures all positions that were closed during square-off, including position_id and re_entry_num.
+        Also captures detailed exit reason with trigger values (performance-based, time-based, immediate).
+        This allows UI to show exactly why square-off was triggered and with what values.
+        
+        Args:
+            context: Execution context
+            node_result: Result from _execute_node_logic
+            
+        Returns:
+            Dictionary with diagnostic data including detailed exit reasons
+        """
+        diagnostic_data = {}
+        
+        # ALWAYS capture square-off status (whether it executed or not)
+        if node_result.get('executed'):
+            # Square-off EXECUTED - capture closed positions and detailed reason
+            condition_type = node_result.get('condition_type')
+            reason = node_result.get('reason')
+            details = node_result.get('details', {})
+            
+            square_off_data = {
+                'executed': True,
+                'reason': reason,
+                'condition_type': condition_type,
+                'orders_cancelled': node_result.get('orders_cancelled', 0),
+                'positions_closed': node_result.get('positions_closed', 0)
+            }
+            
+            # Add detailed trigger information based on exit type
+            if condition_type == 'immediateExit':
+                square_off_data['exit_type'] = 'immediate'
+                square_off_data['exit_description'] = 'Immediate exit triggered by parent condition node'
+                
+            elif condition_type == 'performanceBasedExit':
+                square_off_data['exit_type'] = 'performance_based'
+                # Include actual P&L values and targets
+                if details:
+                    square_off_data['trigger_values'] = {
+                        'current_pnl': details.get('current_pnl', 0),
+                        'profit_target': details.get('profit_target'),
+                        'loss_limit': details.get('loss_limit'),
+                        'triggered_by': 'profit_target' if 'profit_target' in details.get('trigger_reason', '') else 'loss_limit'
+                    }
+                    square_off_data['exit_description'] = reason
+                    
+            elif condition_type == 'timeBasedExit':
+                square_off_data['exit_type'] = 'time_based'
+                # Include time details
+                if details:
+                    square_off_data['trigger_values'] = {
+                        'trigger_time': details.get('trigger_time'),
+                        'current_time': str(context.get('current_timestamp')),
+                        'time_type': details.get('time_type', 'market_close'),  # market_close or specific_time
+                        'exit_time_configured': details.get('exit_time')
+                    }
+                    square_off_data['exit_description'] = reason
+            
+            diagnostic_data['square_off'] = square_off_data
+            
+            # Capture list of positions closed with position_id + re_entry_num
+            closed_positions = node_result.get('closed_positions_list', [])
+            if closed_positions:
+                diagnostic_data['closed_positions'] = closed_positions
+        else:
+            # Square-off MONITORING - capture why it didn't execute
+            diagnostic_data['square_off'] = {
+                'executed': False,
+                'reason': node_result.get('reason', 'Monitoring exit conditions'),
+                'monitoring': True
+            }
+        
+        # Capture configuration
+        end_conditions = self.data.get('endConditions', {})
+        diagnostic_data['config'] = {
+            'immediate_exit_enabled': end_conditions.get('immediateExit', {}).get('enabled', False),
+            'performance_based_exit_enabled': end_conditions.get('performanceBasedExit', {}).get('enabled', False),
+            'time_based_exit_enabled': end_conditions.get('timeBasedExit', {}).get('enabled', False)
+        }
+        
+        # Add configuration details for enabled exits
+        if diagnostic_data['config']['performance_based_exit_enabled']:
+            perf_config = end_conditions.get('performanceBasedExit', {})
+            diagnostic_data['config']['performance_targets'] = {
+                'profit_target': perf_config.get('profitTarget'),
+                'loss_limit': perf_config.get('lossLimit')
+            }
+        
+        if diagnostic_data['config']['time_based_exit_enabled']:
+            time_config = end_conditions.get('timeBasedExit', {})
+            diagnostic_data['config']['time_settings'] = {
+                'exit_time': time_config.get('exitTime'),
+                'minutes_before_close': time_config.get('minutesBeforeClose')
+            }
+        
+        # Capture current timestamp
+        diagnostic_data['timestamp_info'] = {
+            'current_time': str(context.get('current_timestamp')),
+            'strategy_symbol': context.get('strategy_config', {}).get('symbol')
+        }
+        
+        return diagnostic_data
     
     def _cancel_pending_orders(self, context: Dict[str, Any]) -> int:
         """

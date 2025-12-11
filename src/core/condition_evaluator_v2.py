@@ -45,6 +45,9 @@ class ConditionEvaluator:
             'expression_values': {},
             'candle_data': {}
         }
+        
+        # Track symbols accessed during evaluation (to filter candle_data)
+        self.accessed_symbols = set()
 
     def set_condition(self, condition):
         """
@@ -93,41 +96,77 @@ class ConditionEvaluator:
             'expression_values': {},
             'candle_data': {}
         }
+        # Reset accessed symbols for new evaluation
+        self.accessed_symbols = set()
     
     def get_diagnostic_data(self):
         """Get captured diagnostic data from the last evaluation"""
         return self.diagnostic_data.copy()
     
     def _capture_candle_data(self):
-        """Capture current and previous candle data for diagnostic purposes"""
+        """Capture current and previous candle data for diagnostic purposes.
+        
+        Only captures data for:
+        1. Symbols accessed during condition evaluation
+        2. Trading instrument (TI) - always included
+        3. Secondary instrument (SI) - if configured
+        
+        This reduces diagnostics file size by excluding unused symbol data.
+        """
         candle_cache = self.context.get('candle_cache') or self.context.get('candle_df_dict', {})
-        if candle_cache:
-            # Store current candle for primary instruments
-            for key, candles in candle_cache.items():
-                if ':1m' in key or ':tf_1m' in key:  # Only 1-minute candles
-                    symbol = key.replace(':1m', '').replace(':tf_1m_default', '').replace(':tf_1m', '')
-                    if isinstance(candles, list):
-                        # List format (backtesting)
+        if not candle_cache:
+            return
+        
+        # Get strategy config to identify TI and SI
+        strategy_config = self.context.get('strategy_config', {})
+        trading_instrument = strategy_config.get('symbol') or strategy_config.get('resolved_trading_instrument')
+        secondary_instrument = strategy_config.get('secondary_instrument')
+        
+        # Build list of symbols to include
+        symbols_to_include = set()
+        
+        # Always include TI (trading instrument)
+        if trading_instrument:
+            symbols_to_include.add(trading_instrument)
+        
+        # Always include SI (secondary instrument) if configured
+        if secondary_instrument:
+            symbols_to_include.add(secondary_instrument)
+        
+        # Include symbols that were accessed during evaluation
+        symbols_to_include.update(self.accessed_symbols)
+        
+        # Capture candle data only for included symbols
+        for key, candles in candle_cache.items():
+            if ':1m' in key or ':tf_1m' in key:  # Only 1-minute candles
+                symbol = key.replace(':1m', '').replace(':tf_1m_default', '').replace(':tf_1m', '')
+                
+                # Only include if symbol is in our filter list
+                if symbol not in symbols_to_include:
+                    continue
+                
+                if isinstance(candles, list):
+                    # List format (backtesting)
+                    self.diagnostic_data['candle_data'][symbol] = {
+                        'current': candles[-1] if candles else {},
+                        'previous': candles[-2] if len(candles) >= 2 else {}
+                    }
+                else:
+                    # DataFrame or builder format
+                    import pandas as pd
+                    df = None
+                    if isinstance(candles, pd.DataFrame):
+                        df = candles
+                    elif hasattr(candles, 'get_dataframe'):
+                        df = candles.get_dataframe()
+                    
+                    if df is not None and len(df) > 0:
+                        current = df.iloc[-1].to_dict() if len(df) > 0 else {}
+                        previous = df.iloc[-2].to_dict() if len(df) >= 2 else {}
                         self.diagnostic_data['candle_data'][symbol] = {
-                            'current': candles[-1] if candles else {},
-                            'previous': candles[-2] if len(candles) >= 2 else {}
+                            'current': current,
+                            'previous': previous
                         }
-                    else:
-                        # DataFrame or builder format
-                        import pandas as pd
-                        df = None
-                        if isinstance(candles, pd.DataFrame):
-                            df = candles
-                        elif hasattr(candles, 'get_dataframe'):
-                            df = candles.get_dataframe()
-                        
-                        if df is not None and len(df) > 0:
-                            current = df.iloc[-1].to_dict() if len(df) > 0 else {}
-                            previous = df.iloc[-2].to_dict() if len(df) >= 2 else {}
-                            self.diagnostic_data['candle_data'][symbol] = {
-                                'current': current,
-                                'previous': previous
-                            }
 
     def clear_diagnostic_data(self):
         """
@@ -139,6 +178,52 @@ class ConditionEvaluator:
             'expression_values': {},
             'candle_data': {}
         }
+        # Reset accessed symbols for new evaluation
+        self.accessed_symbols = set()
+    
+    def _extract_symbols_from_condition(self, condition):
+        """
+        Extract all instrument symbols referenced in the condition.
+        
+        This parses the condition structure to find all instrumentType references
+        (e.g., 'TI', 'SI', or specific symbols) so we can filter candle_data
+        to only include relevant symbols.
+        
+        Args:
+            condition: Condition structure to parse
+        """
+        if not condition:
+            return
+        
+        # Handle group conditions recursively
+        if isinstance(condition, dict) and 'conditions' in condition:
+            for sub_condition in condition.get('conditions', []):
+                self._extract_symbols_from_condition(sub_condition)
+            return
+        
+        # Extract from lhs and rhs expressions
+        for side in ['lhs', 'rhs']:
+            expr = condition.get(side, {})
+            if not isinstance(expr, dict):
+                continue
+            
+            # Get instrument type from expression
+            instrument_type = expr.get('instrumentType')
+            if instrument_type:
+                # Map instrument type to actual symbol
+                if instrument_type == 'TI':
+                    strategy_config = self.context.get('strategy_config', {})
+                    symbol = strategy_config.get('symbol') or strategy_config.get('resolved_trading_instrument')
+                    if symbol:
+                        self.accessed_symbols.add(symbol)
+                elif instrument_type == 'SI':
+                    strategy_config = self.context.get('strategy_config', {})
+                    symbol = strategy_config.get('secondary_instrument')
+                    if symbol:
+                        self.accessed_symbols.add(symbol)
+                else:
+                    # Direct symbol reference
+                    self.accessed_symbols.add(instrument_type)
 
     def evaluate_condition(self, condition=None):
         """
@@ -158,6 +243,9 @@ class ConditionEvaluator:
 
         # Clear diagnostic data to avoid accumulation from previous ticks
         self.clear_diagnostic_data()
+        
+        # Extract symbols used in this condition to filter candle_data
+        self._extract_symbols_from_condition(condition)
 
         # Store the evaluation result for access by nodes
         result = self._evaluate_recursive(condition)
@@ -189,6 +277,9 @@ class ConditionEvaluator:
 
         # Clear diagnostic data to avoid accumulation from previous ticks
         self.clear_diagnostic_data()
+        
+        # Extract symbols used in this condition to filter candle_data
+        self._extract_symbols_from_condition(condition)
 
         # Store the evaluation result for access by nodes
         result = self._evaluate_recursive_stage1(condition)
@@ -370,6 +461,9 @@ class ConditionEvaluator:
             rhs_value = self._evaluate_value(condition['rhs'], current_timestamp)
             operator = condition['operator']
             
+            # Capture candle data BEFORE building text (so indicator signatures are available)
+            self._capture_candle_data()
+            
             # DIAGNOSTIC: Capture expression values for detailed analysis
             # Build human-readable text
             lhs_text = self._expression_to_text(condition.get('lhs'))
@@ -378,13 +472,17 @@ class ConditionEvaluator:
             # Apply operator and return result
             result = self._apply_operator(lhs_value, operator, rhs_value)
             
-            # Format values for display
-            lhs_display = f"{lhs_value:.2f}" if isinstance(lhs_value, (int, float)) else str(lhs_value)
-            rhs_display = f"{rhs_value:.2f}" if isinstance(rhs_value, (int, float)) else str(rhs_value)
+            # Format values for display (with time-aware formatting)
+            lhs_display = self._format_value_for_display(lhs_value, condition.get('lhs'))
+            rhs_display = self._format_value_for_display(rhs_value, condition.get('rhs'))
             result_icon = '✓' if result else '✗'
             
-            # Build condition text with values
-            condition_text = f"{lhs_text} {operator} {rhs_text}  [{lhs_display} {operator} {rhs_display}] {result_icon}"
+            # Build separate keys for UI (simple format)
+            raw = f"{lhs_text} {operator} {rhs_text}"
+            evaluated = f"{lhs_display} {operator} {rhs_display}"
+            
+            # Build full condition text (backward compatible)
+            condition_text = f"{raw}  [{evaluated}] {result_icon}"
             
             condition_diagnostic = {
                 'lhs_expression': condition.get('lhs'),
@@ -395,15 +493,15 @@ class ConditionEvaluator:
                 'timestamp': str(current_timestamp),
                 'tick_count': self.context.get('tick_count', 0),
                 'result': result,
+                'result_icon': result_icon,
                 'condition_type': 'live',
-                'condition_text': condition_text  # Human-readable text with values
+                'raw': raw,  # UI: Expression only
+                'evaluated': evaluated,  # UI: Values only
+                'condition_text': condition_text  # Backward compatible: Full text
             }
             
             # Store in diagnostic data
             self.diagnostic_data['conditions_evaluated'].append(condition_diagnostic)
-            
-            # Capture candle data using centralized function
-            self._capture_candle_data()
             
             return result
         except Exception as e:
@@ -710,6 +808,9 @@ class ConditionEvaluator:
             except Exception as log_err:
                 log_warning(f"ConditionEvaluator debug logging failed: {log_err}")
 
+            # Capture candle data BEFORE building text (so indicator signatures are available)
+            self._capture_candle_data()
+
             # DIAGNOSTIC: Capture expression values for detailed analysis (non-live conditions)
             # Build human-readable text
             lhs_text = self._expression_to_text(condition.get('lhs'))
@@ -718,13 +819,17 @@ class ConditionEvaluator:
             # Apply operator and return result
             result = self._apply_operator(lhs_value, operator, rhs_value)
             
-            # Format values for display
-            lhs_display = f"{lhs_value:.2f}" if isinstance(lhs_value, (int, float)) else str(lhs_value)
-            rhs_display = f"{rhs_value:.2f}" if isinstance(rhs_value, (int, float)) else str(rhs_value)
+            # Format values for display (with time-aware formatting)
+            lhs_display = self._format_value_for_display(lhs_value, condition.get('lhs'))
+            rhs_display = self._format_value_for_display(rhs_value, condition.get('rhs'))
             result_icon = '✓' if result else '✗'
             
-            # Build condition text with values
-            condition_text = f"{lhs_text} {operator} {rhs_text}  [{lhs_display} {operator} {rhs_display}] {result_icon}"
+            # Build separate keys for UI (simple format)
+            raw = f"{lhs_text} {operator} {rhs_text}"
+            evaluated = f"{lhs_display} {operator} {rhs_display}"
+            
+            # Build full condition text (backward compatible)
+            condition_text = f"{raw}  [{evaluated}] {result_icon}"
             
             condition_diagnostic = {
                 'lhs_expression': condition.get('lhs'),
@@ -735,14 +840,14 @@ class ConditionEvaluator:
                 'timestamp': str(current_timestamp) if current_timestamp else None,
                 'condition_type': 'non_live',
                 'result': result,
-                'condition_text': condition_text  # Human-readable text with values
+                'result_icon': result_icon,
+                'raw': raw,  # UI: Expression only
+                'evaluated': evaluated,  # UI: Values only
+                'condition_text': condition_text  # Backward compatible: Full text
             }
             
             # Store in diagnostic data
             self.diagnostic_data['conditions_evaluated'].append(condition_diagnostic)
-            
-            # Capture candle data if available
-            self._capture_candle_data()
 
             return result
         except Exception as e:
@@ -779,9 +884,50 @@ class ConditionEvaluator:
         # Use ExpressionEvaluator to handle all value types without data_processor
         return self.expression_evaluator.evaluate(value_config)
     
+    def _format_value_for_display(self, value, expr_config):
+        """
+        Format a value for human-readable display.
+        
+        Args:
+            value: The value to format (number, string, etc.)
+            expr_config: The expression configuration to determine type
+            
+        Returns:
+            str: Human-readable formatted value
+        """
+        from datetime import datetime
+        
+        # Handle None
+        if value is None:
+            return "null"
+        
+        # Check if this is a time-related expression
+        if isinstance(expr_config, dict):
+            expr_type = expr_config.get('type', '')
+            
+            # For current_time or time_function, format as time
+            if expr_type in ['current_time', 'time_function']:
+                if isinstance(value, (int, float)):
+                    # Assume it's a Unix timestamp
+                    try:
+                        dt = datetime.fromtimestamp(value)
+                        return dt.strftime('%H:%M:%S')
+                    except (ValueError, OSError):
+                        # If conversion fails, return as-is
+                        pass
+        
+        # For regular numbers
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        elif isinstance(value, int):
+            return str(value)
+        
+        # For other types
+        return str(value)
+    
     def _expression_to_text(self, expr):
         """
-        Convert expression JSON to human-readable text.
+        Convert expression JSON to human-readable text matching UI preview format.
         
         Args:
             expr: Expression configuration (dict, number, or string)
@@ -802,43 +948,100 @@ class ConditionEvaluator:
         
         expr_type = expr.get('type', '')
         
-        # Indicator
-        if expr_type == 'indicator':
-            name = expr.get('name', 'INDICATOR')
-            symbol = expr.get('symbol', '')
-            timeframe = expr.get('timeframe', '')
-            params = expr.get('params', {})
-            
-            # Build parameter text
-            param_text = f"{symbol}, {timeframe}"
-            if params:
-                param_values = ', '.join([f"{k}={v}" for k, v in params.items() if k not in ['symbol', 'timeframe']])
-                if param_values:
-                    param_text += f", {param_values}"
-            
-            return f"{name}({param_text})"
+        # Current Time
+        if expr_type == 'current_time':
+            return "Current Time"
         
-        # Candle field
-        elif expr_type == 'candle':
-            field = expr.get('field', 'close')
-            symbol = expr.get('symbol', '')
+        # Time Function (time comparison value like "09:17")
+        elif expr_type == 'time_function':
+            time_value = expr.get('timeValue', '')
+            return time_value
+        
+        # Candle Data (e.g., Previous[TI.1m.Close] or TI.1m.Close)
+        elif expr_type == 'candle_data':
+            field = expr.get('field', 'Close')
             offset = expr.get('offset', 0)
-            offset_text = f"[{offset}]" if offset != 0 else ""
-            return f"{symbol}.{field}{offset_text}"
+            timeframe_id = expr.get('timeframeId', '1m')
+            instrument_type = expr.get('instrumentType', 'TI')
+            
+            # Build base text
+            base_text = f"{instrument_type}.{timeframe_id}.{field}"
+            
+            # Add Previous[] wrapper if offset is -1
+            if offset == -1:
+                return f"Previous[{base_text}]"
+            elif offset < -1:
+                return f"Previous[{base_text}, {abs(offset)}]"
+            else:
+                return base_text
         
-        # Live data (LTP)
+        # Live Data (e.g., TI.underlying_ltp or SI.underlying_ltp)
         elif expr_type == 'live_data':
-            symbol = expr.get('symbol', '')
             field = expr.get('field', 'ltp')
-            return f"{symbol}.{field}"
+            instrument_type = expr.get('instrumentType', 'TI')
+            return f"{instrument_type}.{field}"
         
-        # Node variable
+        # Indicator (e.g., Previous[TI.1m.rsi(14,close)])
+        elif expr_type == 'indicator':
+            # Get indicator name (e.g., rsi_1764509210372)
+            name = expr.get('name', 'INDICATOR')
+            offset = expr.get('offset', 0)
+            timeframe_id = expr.get('timeframeId', '1m')
+            instrument_type = expr.get('instrumentType', 'TI')
+            parameter = expr.get('parameter', None)
+            
+            # Try to get the full indicator signature from captured candle data
+            # The indicator signature is stored in the candle data as the key
+            full_signature = None
+            
+            # Check captured candle data in diagnostic_data
+            candle_data = self.diagnostic_data.get('candle_data', {})
+            for symbol, data in candle_data.items():
+                # Check previous candle (where indicators are stored)
+                prev_candle = data.get('previous', {})
+                indicators = prev_candle.get('indicators', {})
+                
+                # Extract the base indicator name (e.g., "rsi" from "rsi_1764509210372")
+                base_name = name.split('_')[0] if '_' in name else name
+                
+                # Look for an indicator key that starts with the base name
+                # e.g., "rsi(14,close)" starts with "rsi"
+                for ind_key in indicators.keys():
+                    if ind_key.startswith(base_name + '('):
+                        full_signature = ind_key
+                        break
+                
+                if full_signature:
+                    break
+            
+            # Build indicator text
+            if full_signature:
+                # Use the full signature from candle data
+                indicator_text = f"{instrument_type}.{timeframe_id}.{full_signature}"
+            elif parameter:
+                # Use provided parameter
+                actual_name = name.split('_')[0] if '_' in name else name
+                indicator_text = f"{instrument_type}.{timeframe_id}.{actual_name}({parameter})"
+            else:
+                # Fallback: just use the base name
+                actual_name = name.split('_')[0] if '_' in name else name
+                indicator_text = f"{instrument_type}.{timeframe_id}.{actual_name}()"
+            
+            # Add Previous[] wrapper if offset is -1
+            if offset == -1:
+                return f"Previous[{indicator_text}]"
+            elif offset < -1:
+                return f"Previous[{indicator_text}, {abs(offset)}]"
+            else:
+                return indicator_text
+        
+        # Node variable (e.g., entry_condition_1.SignalLow)
         elif expr_type == 'node_variable':
             node_id = expr.get('nodeId', 'NODE')
             var_name = expr.get('variableName', 'VAR')
             return f"{node_id}.{var_name}"
         
-        # Expression (nested)
+        # Expression (nested arithmetic)
         elif expr_type == 'expression':
             left = self._expression_to_text(expr.get('left'))
             right = self._expression_to_text(expr.get('right'))
@@ -847,12 +1050,27 @@ class ConditionEvaluator:
         
         # Constant/number
         elif expr_type == 'number' or expr_type == 'constant':
-            return str(expr.get('value', 0))
+            # Prioritize 'value' field, fall back to 'numberValue' only if 'value' doesn't exist
+            if 'value' in expr:
+                value = expr.get('value')
+            elif 'numberValue' in expr:
+                value = expr.get('numberValue')
+            else:
+                value = 0
+            return str(value)
         
-        # Time
+        # Time field
         elif expr_type == 'time':
             field = expr.get('field', 'time')
             return f"TIME.{field}"
         
-        # Fallback
+        # Candle (legacy)
+        elif expr_type == 'candle':
+            field = expr.get('field', 'close')
+            symbol = expr.get('symbol', '')
+            offset = expr.get('offset', 0)
+            offset_text = f"[{offset}]" if offset != 0 else ""
+            return f"{symbol}.{field}{offset_text}"
+        
+        # Fallback - return JSON string representation
         return str(expr)

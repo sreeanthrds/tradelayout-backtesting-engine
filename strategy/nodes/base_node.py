@@ -91,8 +91,16 @@ class BaseNode:
         self._set_node_state(context, {'visited': False})
 
     def mark_active(self, context):
-        """Mark node as active."""
+        """
+        Mark node as active and store parent_execution_id if present in context.
+        """
         self.set_status(context, 'Active')
+        
+        # Store parent_execution_id in node state if passed via context
+        if 'parent_execution_id' in context:
+            parent_exec_id = context['parent_execution_id']
+            # Store in node's state so execute() can retrieve it
+            self._set_node_state(context, {'parent_execution_id': parent_exec_id})
 
     def mark_inactive(self, context):
         """Mark node as inactive."""
@@ -179,14 +187,6 @@ class BaseNode:
         """
         Template method that implements the common node execution flow.
         
-        Flow:
-        1. Check if already visited → Skip everything (no logic, no children)
-        2. Mark as visited
-        3. If ACTIVE → Change to PENDING → Execute logic
-        4. If logic_completed=True → Activate children → Mark INACTIVE
-        5. If logic_completed=False → Mark ACTIVE (retry next tick)
-        6. Execute children (only if not visited initially)
-        
         Args:
             context: Execution context containing current state, data, etc.
             
@@ -207,13 +207,7 @@ class BaseNode:
         # No logic execution, no children execution
         # ====================================================================
         if self.is_visited(context):
-            return {
-                'node_id': self.id,
-                'executed': False,
-                'reason': 'Node already visited - subtree terminated',
-                'signal_emitted': False,
-                'child_results': []
-            }
+            return {'executed': False, 'reason': 'Already visited this tick'}
 
         # Mark as visited to prevent infinite loops
         self.mark_visited(context)
@@ -222,10 +216,14 @@ class BaseNode:
         # STEP 1: Execute node-specific logic (ONLY if active)
         # ====================================================================
         is_active_result = self.is_active(context)
+        diagnostics = context.get('diagnostics')
         
         if is_active_result:
             # Execute node logic (nodes will mark_pending themselves if needed)
             node_result = self._execute_node_logic(context)
+            
+            # Get evaluation data for diagnostics (implemented by subclasses)
+            evaluation_data = self._get_evaluation_data(context, node_result)
             
             # ================================================================
             # CRITICAL: Update status based on logic result
@@ -234,17 +232,73 @@ class BaseNode:
             if self.is_pending(context):
                 # Node is waiting for async operation (e.g., order fill in live trading)
                 # Keep status as PENDING, don't change it
-                node_result['node_deactivated'] = False
+                if node_result.get('pending', False):
+                    # PENDING: Waiting for async operation (order fill, etc.)
+                    if diagnostics:
+                        diagnostics.update_pending_state(
+                            node=self,
+                            context=context,
+                            reason=node_result.get('pending_reason', 'Waiting for async operation')
+                        )
+                    
             elif node_result.get('logic_completed', False):
-                # SUCCESS: Activate children FIRST, then mark self INACTIVE
+                # SUCCESS: Generate execution ID and record in diagnostics
+                # Get parent execution ID (stored in node state when mark_active was called)
+                parent_execution_id = self._get_node_state(context).get('parent_execution_id')
+                
+                # Generate unique execution ID for THIS execution
+                execution_id = self._generate_execution_id(context)
+                
+                # Store in node_result for access by children
+                node_result['execution_id'] = execution_id
+                node_result['parent_execution_id'] = parent_execution_id
+                
+                if diagnostics:
+                    # Update current_state with completion data (for live UI to see final state)
+                    diagnostics.update_current_state(
+                        node=self,
+                        context=context,
+                        status='completed',
+                        evaluation_data=evaluation_data,
+                        execution_id=execution_id,
+                        parent_execution_id=parent_execution_id
+                    )
+                    
+                    # Record event in history with execution chain info
+                    diagnostics.record_event(
+                        node=self,
+                        context=context,
+                        event_type='logic_completed',
+                        evaluation_data=evaluation_data,
+                        additional_data={
+                            **node_result.get('diagnostic_data', {}),
+                            'execution_id': execution_id,
+                            'parent_execution_id': parent_execution_id
+                        }
+                    )
+                
+                # Activate children FIRST, passing THIS execution_id as their parent
                 # Order is critical to avoid edge cases
-                self._activate_children(context)
+                self._activate_children_with_execution_id(context, execution_id)
                 self.mark_inactive(context)
                 node_result['node_deactivated'] = True
+                
+                # DON'T clear current_state immediately - keep completion data visible for UI
+                # UI will see status='completed' and know the node finished
+                # Current state will be cleaned up on next strategy run or reset
             else:
                 # FAILURE: Keep ACTIVE for retry on next tick
                 # (mark_active not needed since already active)
                 node_result['node_deactivated'] = False
+                
+                # Update diagnostics for ACTIVE state
+                if diagnostics:
+                    diagnostics.update_current_state(
+                        node=self,
+                        context=context,
+                        status='active',
+                        evaluation_data=evaluation_data
+                    )
         else:
             # Node not active - skip logic execution but still process children
             node_result = {
@@ -403,6 +457,64 @@ class BaseNode:
                 # ✅ Do NOT reset visited here - preserves visited flag for cycle protection
                 # Visited flags are reset globally at tick start in centralized_tick_processor
                 # ReEntrySignalNode will override this method to reset visited for re-entry
+
+    def _activate_children_with_execution_id(self, context: Dict[str, Any], parent_exec_id: str):
+        """
+        Activate all child nodes and pass parent execution ID for chain tracking.
+        
+        Args:
+            context: Execution context
+            parent_exec_id: This node's execution ID (becomes parent_execution_id for children)
+        """
+        node_instances = context.get('node_instances', {})
+        
+        # Current node's re-entry number (defaults to 0)
+        current_reentry_num = int(self._get_node_state(context).get('reEntryNum', 0) or 0)
+        
+        # Activate all children with parent execution ID in context
+        for child_id in self.children:
+            if child_id in node_instances:
+                child_node = node_instances[child_id]
+                
+                # Create child context with parent_execution_id
+                child_context = {**context, 'parent_execution_id': parent_exec_id}
+                
+                # Mark child active with the modified context
+                child_node.mark_active(child_context)
+                
+                # Update child's reEntryNum using shared policy
+                child_re = self._update_child_reentry_num(child_context, child_node, current_reentry_num)
+
+    def _generate_execution_id(self, context: Dict[str, Any]) -> str:
+        """
+        Generate unique execution ID for this node execution.
+        
+        Format: exec_{node_id}_{timestamp}_{unique_suffix}
+        
+        Args:
+            context: Execution context containing current_timestamp
+            
+        Returns:
+            Unique execution ID string
+        """
+        import uuid
+        from datetime import datetime
+        
+        # Get current timestamp
+        current_timestamp = context.get('current_timestamp')
+        if current_timestamp:
+            if isinstance(current_timestamp, str):
+                ts_str = current_timestamp.replace(':', '').replace('-', '').replace(' ', '_')[:15]
+            else:
+                ts_str = current_timestamp.strftime('%Y%m%d_%H%M%S')
+        else:
+            ts_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Generate short unique suffix
+        unique_suffix = uuid.uuid4().hex[:6]
+        
+        # Format: exec_nodeid_timestamp_suffix
+        return f"exec_{self.id}_{ts_str}_{unique_suffix}"
 
     def _trigger_standardized_alert(self, node_result: Dict[str, Any], **kwargs) -> bool:
         """
@@ -710,3 +822,37 @@ class BaseNode:
         spot_prices.update(context_spot_prices)
         
         return spot_prices
+    
+    def _get_evaluation_data(
+        self,
+        context: Dict[str, Any],
+        node_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Extract evaluation data for diagnostics.
+        
+        This is a default implementation that can be overridden by subclasses
+        to provide node-specific evaluation data (conditions, variables, etc.)
+        
+        Args:
+            context: Execution context
+            node_result: Result from _execute_node_logic
+        
+        Returns:
+            Dictionary with evaluation data for diagnostics
+        """
+        # Default: pass through diagnostic fields from node_result
+        # This allows condition nodes to automatically include their evaluation data
+        evaluation_data = {}
+        
+        # Copy common diagnostic fields if present
+        if 'conditions_evaluated' in node_result:
+            evaluation_data['conditions_evaluated'] = node_result['conditions_evaluated']
+        if 'condition_substitution' in node_result:
+            evaluation_data['condition_substitution'] = node_result['condition_substitution']
+        if 'condition_preview' in node_result:
+            evaluation_data['condition_preview'] = node_result['condition_preview']
+        if 'diagnostic_data' in node_result:
+            evaluation_data['diagnostic_data'] = node_result['diagnostic_data']
+        
+        return evaluation_data

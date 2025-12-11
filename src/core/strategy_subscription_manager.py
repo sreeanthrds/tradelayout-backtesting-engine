@@ -35,7 +35,7 @@ class StrategySubscriptionManager:
     6. Maintain active strategies
     """
     
-    def __init__(self, cache_manager, indicator_manager, option_manager):
+    def __init__(self, cache_manager, indicator_manager, option_manager, shared_gps=None):
         """
         Initialize strategy subscription manager.
         
@@ -43,11 +43,13 @@ class StrategySubscriptionManager:
             cache_manager: CacheManager instance
             indicator_manager: IndicatorSubscriptionManager instance
             option_manager: OptionSubscriptionManager instance
+            shared_gps: Optional shared GPS instance for all strategies (backtesting)
         """
         self.cache = cache_manager
         self.indicator_manager = indicator_manager
         self.option_manager = option_manager
         self.scanner = StrategyScanner()
+        self.shared_gps = shared_gps  # For backtesting - all strategies share one GPS
         
         self.active_strategies = {}  # instance_id → strategy_state
         self.last_sync_time = {}  # instance_id → datetime
@@ -409,6 +411,12 @@ class StrategySubscriptionManager:
             strategy_id=subscription['strategy_id']
         )
         
+        # Initialize diagnostics for this strategy
+        from src.utils.node_diagnostics import NodeDiagnostics
+        diagnostics = NodeDiagnostics(max_events_per_node=100)
+        node_events_history = {}
+        node_current_state = {}
+        
         # Create strategy state
         strategy_state = {
             'instance_id': instance_id,
@@ -421,12 +429,26 @@ class StrategySubscriptionManager:
             'node_instances': {},
             'positions': {},
             'context': {
-                'context_manager': context_manager  # ✅ Add context_manager with GPS
+                'context_manager': context_manager,  # ✅ Add context_manager with GPS
+                'diagnostics': diagnostics,  # ✅ Add diagnostics system
+                'node_events_history': node_events_history,  # ✅ Event history storage
+                'node_current_state': node_current_state  # ✅ Current state storage
             },
             'context_manager': context_manager,  # ✅ Also at top level for easy access
+            'diagnostics': diagnostics,  # ✅ Also at top level for retrieval after backtest
+            'node_events_history': node_events_history,  # ✅ For export
+            'node_current_state': node_current_state,  # ✅ For export
             'active': True,
             'subscribed_at': subscription['subscribed_at']
         }
+        
+        # Validate diagnostics are properly set up in context
+        if 'diagnostics' not in strategy_state['context']:
+            raise RuntimeError(f"CRITICAL: diagnostics missing from context for strategy {instance_id}")
+        if 'node_events_history' not in strategy_state['context']:
+            raise RuntimeError(f"CRITICAL: node_events_history missing from context for strategy {instance_id}")
+        if 'node_current_state' not in strategy_state['context']:
+            raise RuntimeError(f"CRITICAL: node_current_state missing from context for strategy {instance_id}")
         
         # Initialize nodes
         self._initialize_nodes(strategy_state)

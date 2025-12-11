@@ -194,7 +194,8 @@ class CentralizedBacktestEngine(BacktestEngine):
                     # Convert IndicatorMetadata to dict format expected by DataManager
                     indicator_dict = {
                         'name': indicator.name,
-                        'params': indicator.params
+                        'params': indicator.params,
+                        'key': indicator.key  # Include database key for mapping
                     }
                     
                     # Check if indicator already exists (by name and params)
@@ -310,7 +311,8 @@ class CentralizedBacktestEngine(BacktestEngine):
             cache_manager=self.cache_manager,
             subscription_manager=None,
             thread_safe=False,
-            data_manager=self.data_manager
+            data_manager=self.data_manager,
+            shared_gps=self.context_adapter.gps  # Pass shared GPS for all strategies
         )
         
         print("   ✅ Centralized components initialized")
@@ -414,8 +416,6 @@ class CentralizedBacktestEngine(BacktestEngine):
         
         # Step 2: Process each second's batch
         processed_tick_count = 0
-        skipped_seconds = 0  # Track seconds skipped for performance
-        last_ltp = {}  # Track last LTP per symbol to detect changes
         
         # DEBUG START: Track start time for stop_after_seconds feature
         if self.debug_mode == 'snapshots' and self.debug_snapshot_seconds:
@@ -462,39 +462,11 @@ class CentralizedBacktestEngine(BacktestEngine):
             # Step 2b: Execute strategy ONCE per second with the final state
             # Use the last tick of the second as the representative tick
             if last_processed_tick:
-                # OPTIMIZATION: Check if strategy execution is needed
-                symbol = last_processed_tick.get('symbol')
-                current_ltp = last_processed_tick.get('ltp')
-                
-                # Check if there are any active nodes (ACTIVE or PENDING status)
-                has_active_nodes = False
-                price_changed = symbol not in last_ltp or last_ltp.get(symbol) != current_ltp
-                
-                for instance_id, strategy_state in self.centralized_processor.strategy_manager.active_strategies.items():
-                    for node_id, node_state in strategy_state.get('node_states', {}).items():
-                        status = node_state.get('status', 'INACTIVE')
-                        if status in ['ACTIVE', 'PENDING']:
-                            has_active_nodes = True
-                            break
-                    if has_active_nodes:
-                        break
-                
-                # Skip execution if: no active nodes AND price didn't change
-                should_execute = has_active_nodes or price_changed or second_idx == 0  # Always execute first second
-                
-                if not should_execute:
-                    skipped_seconds += 1
-                    last_ltp[symbol] = current_ltp  # Update LTP for next comparison
-                    continue
-                
-                # Update LTP tracking
-                last_ltp[symbol] = current_ltp
-                
                 try:
                     # Prepare tick data for strategy execution
                     tick_data = {
-                        'symbol': symbol,
-                        'ltp': current_ltp,
+                        'symbol': last_processed_tick.get('symbol'),
+                        'ltp': last_processed_tick.get('ltp'),
                         'timestamp': second_timestamp,  # Use second timestamp
                         'volume': last_processed_tick.get('volume', 0),
                         'batch_size': len(tick_batch)  # How many ticks in this second
@@ -520,45 +492,36 @@ class CentralizedBacktestEngine(BacktestEngine):
                                     print(f"      {node_id}: status={status}, visited={visited}")
                             print(f"{'='*80}\n")
                     
-                    # Live simulation: Start timing before execution
-                    if hasattr(self, 'live_simulation_session') and self.live_simulation_session:
-                        import time
-                        start_time = time.time()
-                    
                     # Execute strategy once for this second
                     self.centralized_processor.on_tick(tick_data)
                     
-                    # Live simulation: Update session state and pace execution
+                    # Live simulation: Update session state (if enabled)
                     if hasattr(self, 'live_simulation_session') and self.live_simulation_session:
                         try:
-                            # Get strategy state (it IS the context - direct snapshot)
+                            from src.utils.live_state_formatter import format_live_state
+                            
+                            # Get strategy context and node instances
                             for instance_id, strategy_state in self.centralized_processor.strategy_manager.active_strategies.items():
-                                # strategy_state IS the context dictionary - read directly (no transformation)
-                                snapshot = {
-                                    'node_states': strategy_state.get('node_states', {}),
-                                    'ltp_store': strategy_state.get('ltp_store', {}),
-                                    'gps': strategy_state.get('gps'),  # Global Position Store
-                                    'live_variables': strategy_state.get('live_variables', {}),  # For future use
-                                    'timestamp': second_timestamp.isoformat(),
-                                    'ticks_processed': processed_tick_count,
-                                    'total_ticks': len(ticks)
-                                }
+                                context = strategy_state.get('context', {})
+                                # Node instances are stored in context, not strategy_state
+                                node_instances = context.get('node_instances', {})
                                 
-                                # Update session with context snapshot
-                                self.live_simulation_session.update_state(snapshot)
+                                # Format state and update session
+                                formatted_state = format_live_state(context, node_instances)
+                                self.live_simulation_session.update_state(formatted_state)
                                 break  # Only update for first active strategy (single-strategy mode)
                         except Exception as e:
                             import traceback
                             logger.warning(f"Failed to update live simulation state: {e}")
                             logger.warning(f"Traceback: {traceback.format_exc()}")
                         
-                        # Pace simulation: Sleep for (1 second - processing time)
+                        # Pace simulation: Sleep to control playback speed
                         # At 4x speed: 1 simulated second = 0.25 real seconds
-                        processing_time = time.time() - start_time
+                        # This allows UI to poll 4 times per simulated second
+                        import time
                         speed_multiplier = self.live_simulation_session.speed_multiplier
                         if speed_multiplier > 0:
-                            target_duration = 1.0 / speed_multiplier  # Target real-time duration per simulated second
-                            sleep_duration = max(0, target_duration - processing_time)  # Sleep for remainder
+                            sleep_duration = 1.0 / speed_multiplier  # seconds
                             time.sleep(sleep_duration)
                     
                     # DEBUG START: Capture snapshot after strategy execution
@@ -628,11 +591,7 @@ class CentralizedBacktestEngine(BacktestEngine):
                 logger.info(f"Progress: {second_idx + 1}/{total_seconds} seconds ({100*(second_idx+1)/total_seconds:.1f}%)")
         
         print(f"   ✅ Processed {processed_tick_count:,} ticks in {total_seconds:,} seconds")
-        executed_seconds = total_seconds - skipped_seconds
-        print(f"   ⚡ Strategy executed {executed_seconds:,}/{total_seconds:,} times ({100*executed_seconds/total_seconds:.1f}%)")
-        if skipped_seconds > 0:
-            print(f"   🚀 Optimization: Skipped {skipped_seconds:,} seconds (no active nodes + no price change)")
-            print(f"   💨 Speed improvement: {total_seconds/executed_seconds:.1f}x faster")
+        print(f"   ⚡ Strategy executed {total_seconds:,} times (once per second)")
     
     # DEBUG START: Snapshot capture helper method for node-by-node testing
     def _capture_snapshot(

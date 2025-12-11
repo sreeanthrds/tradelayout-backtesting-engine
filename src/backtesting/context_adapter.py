@@ -8,6 +8,7 @@ Converts our DataFrameWriter, DictCache, and LTP store into the format nodes exp
 from typing import Dict, Any, Optional
 import logging
 from src.core.gps import GlobalPositionStore
+from src.utils.node_diagnostics import NodeDiagnostics
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,11 @@ class ContextAdapter:
         self.node_states = {}  # Note: plural!
         self.node_instances = {}  # Will be set by orchestrator
         
+        # Initialize diagnostics system
+        self.diagnostics = NodeDiagnostics(max_events_per_node=100)
+        self.node_events_history = {}  # Will be populated by diagnostics
+        self.node_current_state = {}   # Will be populated by diagnostics
+        
         logger.info("📦 Context Adapter initialized")
     
     def get_context(
@@ -109,6 +115,11 @@ class ContextAdapter:
             # Current tick and timestamp
             'current_tick': current_tick,
             'current_timestamp': current_timestamp,
+            
+            # Diagnostics system
+            'diagnostics': self.diagnostics,
+            'node_events_history': self.node_events_history,
+            'node_current_state': self.node_current_state,
         }
         
         return context

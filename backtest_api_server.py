@@ -8,19 +8,254 @@ import sys
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta
 import json
 import asyncio
+import subprocess
+import gzip
+import zipfile
+from io import BytesIO
+from sse_starlette.sse import EventSourceResponse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Custom JSON encoder for datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
+        return super().default(obj)
 
 os.environ['SUPABASE_URL'] = 'https://oonepfqgzpdssfzvokgk.supabase.co'
 os.environ['SUPABASE_SERVICE_ROLE_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vbmVwZnFnenBkc3NmenZva2drIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDE5OTkxNCwiZXhwIjoyMDY1Nzc1OTE0fQ.qmUNhAh3oVhPW2lcAkw7E2Z19MenEIoWCBXCR9Hq6Kg'
 
 from show_dashboard_data import run_dashboard_backtest, dashboard_data, format_value_for_display, substitute_condition_values
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def create_backtest_id(strategy_id: str, start_date: str, end_date: str) -> str:
+    """Create backtest ID from strategy_id and date range"""
+    return f"{strategy_id}_{start_date}_{end_date}"
+
+def parse_backtest_id(backtest_id: str) -> tuple:
+    """Parse backtest ID to extract strategy_id, start_date, end_date"""
+    parts = backtest_id.rsplit('_', 2)
+    if len(parts) != 3:
+        raise ValueError(f"Invalid backtest_id format: {backtest_id}")
+    return parts[0], parts[1], parts[2]
+
+def get_backtest_dir(strategy_id: str) -> str:
+    """Get backtest results directory for a strategy"""
+    return f"backtest_results/{strategy_id}"
+
+def get_day_dir(strategy_id: str, date: str) -> str:
+    """Get directory for a specific day's backtest results"""
+    return f"backtest_results/{strategy_id}/{date}"
+
+def build_flow_chain(events_history: dict, exec_id: str, max_depth: int = 50) -> list:
+    """
+    Build flow chain from current node back to start/trigger.
+    Returns list of execution IDs in CHRONOLOGICAL order (oldest to newest).
+    """
+    chain = [exec_id]  # Include the current node
+    current_id = exec_id
+    depth = 0
+    
+    while current_id and current_id in events_history and depth < max_depth:
+        event = events_history[current_id]
+        parent_id = event.get('parent_execution_id')
+        
+        if parent_id and parent_id in events_history:
+            parent_event = events_history[parent_id]
+            node_type = parent_event.get('node_type', '')
+            
+            # Add ALL parent nodes (signals, conditions, start)
+            if any(keyword in node_type for keyword in ['Signal', 'Condition', 'Start', 'Entry', 'Exit']):
+                chain.append(parent_id)
+            
+            current_id = parent_id
+            depth += 1
+        else:
+            break
+    
+    # Return in chronological order (oldest first)
+    return list(reversed(chain))
+
+def extract_flow_ids_from_diagnostics(diagnostics: dict, node_id: str, timestamp: str) -> list:
+    """Extract execution_ids (flow_ids) for a specific node execution"""
+    events = diagnostics.get('events_history', {})
+    
+    for exec_id, event in events.items():
+        if event.get('node_id') == node_id:
+            # Check if timestamp matches (compare HH:MM:SS)
+            event_time = event.get('timestamp', '')
+            if timestamp and event_time:
+                # Extract time portion from diagnostic timestamp
+                # Diagnostic format: "2024-10-28 09:18:00+05:30"
+                # Position format: "09:18:00"
+                # Extract HH:MM:SS from diagnostic (chars 11-19)
+                if len(event_time) >= 19:
+                    diagnostic_time = event_time[11:19]  # "09:18:00"
+                    # Compare HH:MM:SS (first 8 chars)
+                    if diagnostic_time == timestamp[:8]:
+                        # Found the node execution - build full chain
+                        return build_flow_chain(events, exec_id)
+    
+    return []
+
+def map_position_to_trade(pos: dict, diagnostics: dict) -> dict:
+    """
+    Map position data to trade format expected by UI
+    Adds entry_flow_ids and exit_flow_ids to link to diagnostic events
+    """
+    # Extract flow IDs
+    entry_flow_ids = extract_flow_ids_from_diagnostics(
+        diagnostics,
+        pos.get('entry_node_id'),
+        pos.get('entry_timestamp')
+    )
+    
+    exit_flow_ids = []
+    if pos.get('status') == 'CLOSED':
+        exit_flow_ids = extract_flow_ids_from_diagnostics(
+            diagnostics,
+            pos.get('exit_node_id'),
+            pos.get('exit_timestamp')
+        )
+    
+    # Convert datetime objects to strings
+    entry_time = pos.get('entry_time')
+    if hasattr(entry_time, 'isoformat'):
+        entry_time = entry_time.isoformat()
+    elif entry_time:
+        entry_time = str(entry_time)
+    
+    exit_time = pos.get('exit_time')
+    if hasattr(exit_time, 'isoformat'):
+        exit_time = exit_time.isoformat()
+    elif exit_time:
+        exit_time = str(exit_time)
+    
+    return {
+        'trade_id': pos.get('position_id'),
+        'position_id': pos.get('position_id'),
+        're_entry_num': pos.get('re_entry_num', 0),
+        'symbol': pos.get('symbol'),
+        'side': pos.get('side'),
+        'quantity': pos.get('quantity'),
+        'entry_price': f"{pos.get('entry_price', 0):.2f}",
+        'entry_time': entry_time,
+        'exit_price': f"{pos.get('exit_price', 0):.2f}" if pos.get('exit_price') else None,
+        'exit_time': exit_time,
+        'pnl': f"{pos.get('pnl', 0):.2f}" if pos.get('pnl') is not None else None,
+        'pnl_percent': f"{pos.get('pnl_percentage', 0):.2f}" if pos.get('pnl_percentage') is not None else None,
+        'duration_minutes': pos.get('duration_minutes'),
+        'status': pos.get('status'),
+        'entry_flow_ids': entry_flow_ids,
+        'exit_flow_ids': exit_flow_ids,
+        'entry_trigger': pos.get('entry_node_id'),
+        'exit_reason': pos.get('exit_reason')
+    }
+
+def save_daily_files(strategy_id: str, date_str: str, daily_data: dict):
+    """
+    Save trades_daily.json.gz and diagnostics_export.json.gz
+    to backtest_results/{strategy_id}/{date}/
+    """
+    dir_path = get_day_dir(strategy_id, date_str)
+    os.makedirs(dir_path, exist_ok=True)
+    
+    # trades_daily.json
+    trades_data = {
+        'date': date_str,
+        'summary': {
+            'total_trades': daily_data['summary']['total_positions'],
+            'total_pnl': f"{daily_data['summary']['total_pnl']:.2f}",
+            'winning_trades': daily_data['summary']['winning_trades'],
+            'losing_trades': daily_data['summary']['losing_trades'],
+            'win_rate': f"{daily_data['summary']['win_rate']:.2f}"
+        },
+        'trades': [
+            map_position_to_trade(pos, daily_data.get('diagnostics', {}))
+            for pos in daily_data['positions']
+        ]
+    }
+    
+    with gzip.open(f"{dir_path}/trades_daily.json.gz", 'wt', encoding='utf-8') as f:
+        json.dump(trades_data, f, indent=2, cls=DateTimeEncoder)
+    
+    # diagnostics_export.json
+    diagnostics_data = {
+        'events_history': daily_data.get('diagnostics', {}).get('events_history', {})
+    }
+    
+    with gzip.open(f"{dir_path}/diagnostics_export.json.gz", 'wt', encoding='utf-8') as f:
+        json.dump(diagnostics_data, f, indent=2, cls=DateTimeEncoder)
+    
+    print(f"[API] Saved files for {date_str} to {dir_path}")
+
+# ============================================================================
+# UI FILES GENERATION (Legacy)
+# ============================================================================
+
+def generate_ui_files_from_diagnostics():
+    """
+    Generate trades_daily.json and diagnostics_export.json files.
+    These files are useful for reference and can be served directly.
+    """
+    try:
+        print("[API] Generating UI files...")
+        
+        # Step 1: Generate diagnostics_export.json
+        result1 = subprocess.run(
+            [sys.executable, 'view_diagnostics.py'],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result1.returncode != 0:
+            print(f"[API WARNING] Failed to generate diagnostics_export.json: {result1.stderr}")
+            return False
+        
+        # Step 2: Extract trades
+        result2 = subprocess.run(
+            [sys.executable, 'extract_trades_simplified.py'],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result2.returncode != 0:
+            print(f"[API WARNING] Failed to generate trades_daily.json: {result2.stderr}")
+            return False
+        
+        # Step 3: Format prices
+        result3 = subprocess.run(
+            [sys.executable, 'format_diagnostics_prices.py'],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result3.returncode != 0:
+            print(f"[API WARNING] Failed to format prices: {result3.stderr}")
+            return False
+        
+        print("[API] ✅ UI files generated successfully")
+        return True
+        
+    except Exception as e:
+        print(f"[API ERROR] Failed to generate UI files: {e}")
+        return False
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -29,13 +264,22 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Middleware to bypass ngrok browser warning
+@app.middleware("http")
+async def bypass_ngrok_warning(request, call_next):
+    """Add header to bypass ngrok browser warning page"""
+    response = await call_next(request)
+    response.headers["ngrok-skip-browser-warning"] = "true"
+    return response
+
 # Add CORS middleware for cross-origin requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this based on your UI domain
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins (including lovable.app and ngrok)
+    allow_credentials=False,  # Must be False when using wildcard origins
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Add GZip compression middleware (reduces JSON size by 70-80%)
@@ -321,6 +565,10 @@ async def run_backtest(request: BacktestRequest):
         else:
             overall_summary['overall_win_rate'] = 0
         
+        # Generate UI files (trades_daily.json and diagnostics_export.json) for reference
+        print("[API] Backtest complete. Generating UI files...")
+        ui_files_generated = generate_ui_files_from_diagnostics()
+        
         # Prepare response
         response_data = {
             'strategy_id': request.strategy_id,
@@ -334,7 +582,8 @@ async def run_backtest(request: BacktestRequest):
             'metadata': {
                 'total_days': len(date_range),
                 'diagnostics_included': request.include_diagnostics,
-                'generated_at': datetime.now().isoformat()
+                'generated_at': datetime.now().isoformat(),
+                'ui_files_generated': ui_files_generated
             }
         }
         
@@ -518,11 +767,16 @@ async def stream_backtest(request: BacktestRequest):
             else:
                 overall_summary['overall_win_rate'] = 0
             
+            # Generate UI files after completion
+            print("[API] Stream complete. Generating UI files...")
+            ui_files_generated = generate_ui_files_from_diagnostics()
+            
             # Send completion event
             complete_event = {
                 "type": "complete",
                 "overall_summary": overall_summary,
-                "completed_at": datetime.now().isoformat()
+                "completed_at": datetime.now().isoformat(),
+                "ui_files_generated": ui_files_generated
             }
             yield json.dumps(complete_event) + "\n"
             
@@ -549,15 +803,519 @@ async def get_backtest_status():
     """Get status of backtest service"""
     return {
         "status": "ready",
-        "available_modes": ["backtesting"],
+        "available_modes": ["backtesting", "live_simulation"],
         "features": {
             "single_day": True,
             "multi_day": True,
             "diagnostic_text": True,
             "compression": True,
-            "streaming": True
+            "streaming": True,
+            "live_simulation": True,
+            "ui_files_generation": True
         }
     }
+
+# ============================================================================
+# LIVE SIMULATION ENDPOINTS
+# ============================================================================
+
+class SimulationStartRequest(BaseModel):
+    user_id: str = Field(..., description="User UUID")
+    strategy_id: str = Field(..., description="Strategy UUID")
+    start_date: str = Field(..., description="Simulation date in YYYY-MM-DD format")
+    mode: str = Field("live", description="Mode (live for simulation)")
+    broker_connection_id: str = Field("clickhouse", description="Data source (clickhouse for now)")
+    speed_multiplier: float = Field(1.0, description="Speed multiplier (1.0=real-time, 10.0=10x faster)")
+
+
+@app.post("/api/v1/simulation/start")
+async def start_live_simulation(request: SimulationStartRequest):
+    """
+    Start live simulation with per-second state tracking.
+    
+    Returns session_id for polling state updates.
+    
+    Request:
+    {
+      "user_id": "user_xxx",
+      "strategy_id": "strategy_xxx",
+      "start_date": "2024-10-29",
+      "mode": "live",
+      "broker_connection_id": "clickhouse",
+      "speed_multiplier": 1.0
+    }
+    
+    Response:
+    {
+      "session_id": "sim-abc123",
+      "status": "running",
+      "poll_url": "/api/v1/simulation/sim-abc123/state"
+    }
+    """
+    try:
+        from src.backtesting.live_simulation_session import LiveSimulationSession
+        
+        # Create session
+        session_id = LiveSimulationSession.create_session(
+            user_id=request.user_id,
+            strategy_id=request.strategy_id,
+            backtest_date=request.start_date,
+            speed_multiplier=request.speed_multiplier
+        )
+        
+        # Get session
+        session = LiveSimulationSession.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=500, detail="Failed to create session")
+        
+        # Start simulation in background
+        session.start_simulation()
+        
+        return {
+            "session_id": session_id,
+            "user_id": request.user_id,
+            "strategy_id": request.strategy_id,
+            "start_date": request.start_date,
+            "status": "running",
+            "speed_multiplier": request.speed_multiplier,
+            "poll_url": f"/api/v1/simulation/{session_id}/state",
+            "stop_url": f"/api/v1/simulation/{session_id}/stop"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start simulation: {str(e)}"
+        )
+
+
+@app.get("/api/v1/simulation/{session_id}/state")
+async def get_simulation_state(session_id: str):
+    """
+    Get current state of running simulation (poll this every 1 second).
+    
+    Response:
+    {
+      "session_id": "sim-abc123",
+      "status": "running",
+      "timestamp": "2024-10-29T10:15:23+05:30",
+      "progress_percentage": 15.2,
+      
+      "active_nodes": [
+        {
+          "node_id": "entry-2",
+          "node_type": "EntryNode",
+          "status": "Active"
+        }
+      ],
+      
+      "latest_candles": {
+        "NIFTY": {
+          "1m": {
+            "current": {...},
+            "previous": {...}
+          }
+        }
+      },
+      
+      "ltp_store": {
+        "NIFTY": {"ltp": 24145.0},
+        "NIFTY:2024-11-07:OPT:24250:PE": {"ltp": 260.05}
+      },
+      
+      "open_positions": [
+        {
+          "position_id": "entry-2-pos1",
+          "symbol": "NIFTY:2024-11-07:OPT:24250:PE",
+          "entry_price": 181.6,
+          "current_ltp": 260.05,
+          "unrealized_pnl": -78.45
+        }
+      ],
+      
+      "total_unrealized_pnl": -78.45,
+      
+      "stats": {
+        "ticks_processed": 25000,
+        "total_ticks": 165000,
+        "progress_percentage": 15.2
+      }
+    }
+    """
+    try:
+        from src.backtesting.live_simulation_session import LiveSimulationSession
+        
+        session = LiveSimulationSession.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get current state
+        state = session.get_current_state()
+        
+        return state
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get simulation state: {str(e)}"
+        )
+
+
+@app.post("/api/v1/simulation/{session_id}/stop")
+async def stop_simulation(session_id: str):
+    """
+    Stop running simulation.
+    
+    Response:
+    {
+      "session_id": "sim-abc123",
+      "status": "stopped"
+    }
+    """
+    try:
+        from src.backtesting.live_simulation_session import LiveSimulationSession
+        
+        session = LiveSimulationSession.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Stop simulation
+        session.stop()
+        
+        return {
+            "session_id": session_id,
+            "status": "stopped"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to stop simulation: {str(e)}"
+        )
+
+
+@app.get("/api/v1/simulation/sessions")
+async def list_active_sessions():
+    """
+    List all active simulation sessions.
+    
+    Response:
+    {
+      "sessions": [
+        {
+          "session_id": "sim-abc123",
+          "user_id": "user_xxx",
+          "strategy_id": "strategy_xxx",
+          "status": "running",
+          "progress_percentage": 15.2
+        }
+      ]
+    }
+    """
+    try:
+        from src.backtesting.live_simulation_session import LiveSimulationSession
+        
+        sessions = LiveSimulationSession.list_sessions()
+        
+        return {
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "user_id": s.user_id,
+                    "strategy_id": s.strategy_id,
+                    "backtest_date": s.backtest_date,
+                    "status": s.status,
+                    "speed_multiplier": s.speed_multiplier,
+                    "progress_percentage": s.latest_state.get('stats', {}).get('progress_percentage', 0)
+                }
+                for s in sessions
+            ]
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list sessions: {str(e)}"
+        )
+
+
+# ============================================================================
+# NEW SSE-BASED BACKTEST ENDPOINTS
+# ============================================================================
+
+class BacktestStartRequest(BaseModel):
+    strategy_id: str = Field(..., description="Strategy UUID")
+    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
+    initial_capital: Optional[float] = Field(100000, description="Initial capital")
+    slippage_percentage: Optional[float] = Field(0.05, description="Slippage percentage")
+    commission_percentage: Optional[float] = Field(0.01, description="Commission percentage")
+
+@app.post("/api/v1/backtest/start")
+async def start_backtest(request: BacktestStartRequest):
+    """
+    Start a backtest and return backtest_id immediately.
+    Use the stream endpoint to monitor progress.
+    
+    Returns:
+    {
+        "backtest_id": "strategy_id_start_end",
+        "total_days": 8,
+        "status": "ready",
+        "stream_url": "/api/v1/backtest/{id}/stream"
+    }
+    """
+    try:
+        # Validate dates
+        try:
+            start_dt = datetime.strptime(request.start_date, '%Y-%m-%d').date()
+            end_dt = datetime.strptime(request.end_date, '%Y-%m-%d').date()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid date format: {str(e)}")
+        
+        if end_dt < start_dt:
+            raise HTTPException(status_code=400, detail="end_date must be >= start_date")
+        
+        # Calculate total days
+        date_range = []
+        current_date = start_dt
+        while current_date <= end_dt:
+            date_range.append(current_date)
+            current_date += timedelta(days=1)
+        
+        total_days = len(date_range)
+        
+        # Create backtest_id
+        backtest_id = create_backtest_id(
+            request.strategy_id,
+            request.start_date,
+            request.end_date
+        )
+        
+        print(f"[API] Backtest started: {backtest_id} ({total_days} days)")
+        
+        return {
+            "backtest_id": backtest_id,
+            "total_days": total_days,
+            "status": "ready",
+            "stream_url": f"/api/v1/backtest/{backtest_id}/stream"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start backtest: {str(e)}")
+
+@app.get("/api/v1/backtest/{backtest_id}/stream")
+async def stream_backtest_progress(backtest_id: str):
+    """
+    Server-Sent Events stream for backtest progress.
+    
+    Events:
+    - day_started: {"date": "2024-10-24", "day_number": 1}
+    - day_completed: {"date": "2024-10-24", "summary": {...}}
+    - backtest_completed: {"overall_summary": {...}}
+    - error: {"message": "..."}
+    """
+    async def event_generator():
+        try:
+            # Parse backtest_id
+            strategy_id, start_date, end_date = parse_backtest_id(backtest_id)
+            
+            # Parse dates
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+            
+            # Calculate date range
+            date_range = []
+            current_date = start_dt
+            while current_date <= end_dt:
+                date_range.append(current_date)
+                current_date += timedelta(days=1)
+            
+            total_days = len(date_range)
+            
+            # Overall tracking
+            overall_summary = {
+                'total_positions': 0,
+                'total_pnl': 0,
+                'total_winning_trades': 0,
+                'total_losing_trades': 0,
+                'total_breakeven_trades': 0,
+                'largest_win': 0,
+                'largest_loss': 0,
+                'days_tested': total_days
+            }
+            
+            # Process each day
+            for idx, test_date in enumerate(date_range, 1):
+                # Send day_started event
+                yield {
+                    "event": "day_started",
+                    "data": json.dumps({
+                        "date": test_date.strftime('%Y-%m-%d'),
+                        "day_number": idx,
+                        "total_days": total_days
+                    })
+                }
+                
+                await asyncio.sleep(0)  # Allow other tasks
+                
+                print(f"[API] Processing day {idx}/{total_days}: {test_date}")
+                
+                try:
+                    # Run backtest for this day
+                    daily_data = run_dashboard_backtest(strategy_id, test_date)
+                    
+                    # Save files to disk
+                    try:
+                        save_daily_files(strategy_id, test_date.strftime('%Y-%m-%d'), daily_data)
+                    except Exception as save_error:
+                        print(f"[API WARNING] Failed to save files for {test_date}: {str(save_error)}")
+                        import traceback
+                        traceback.print_exc()
+                    
+                    # Update overall summary
+                    overall_summary['total_positions'] += daily_data['summary']['total_positions']
+                    overall_summary['total_pnl'] += daily_data['summary']['total_pnl']
+                    overall_summary['total_winning_trades'] += daily_data['summary']['winning_trades']
+                    overall_summary['total_losing_trades'] += daily_data['summary']['losing_trades']
+                    overall_summary['total_breakeven_trades'] += daily_data['summary']['breakeven_trades']
+                    overall_summary['largest_win'] = max(overall_summary['largest_win'], daily_data['summary']['largest_win'])
+                    overall_summary['largest_loss'] = min(overall_summary['largest_loss'], daily_data['summary']['largest_loss'])
+                    
+                    # Send day_completed event with summary only
+                    yield {
+                        "event": "day_completed",
+                        "data": json.dumps({
+                            "date": test_date.strftime('%Y-%m-%d'),
+                            "day_number": idx,
+                            "total_days": total_days,
+                            "summary": {
+                                "total_trades": daily_data['summary']['total_positions'],
+                                "total_pnl": f"{daily_data['summary']['total_pnl']:.2f}",
+                                "winning_trades": daily_data['summary']['winning_trades'],
+                                "losing_trades": daily_data['summary']['losing_trades'],
+                                "win_rate": f"{daily_data['summary']['win_rate']:.2f}"
+                            },
+                            "has_detail_data": True
+                        })
+                    }
+                    
+                except Exception as day_error:
+                    print(f"[API ERROR] Day {test_date} failed: {str(day_error)}")
+                    yield {
+                        "event": "error",
+                        "data": json.dumps({
+                            "date": test_date.strftime('%Y-%m-%d'),
+                            "error": str(day_error)
+                        })
+                    }
+                
+                await asyncio.sleep(0)
+            
+            # Calculate overall averages
+            if overall_summary['total_winning_trades'] > 0:
+                overall_summary['overall_win_rate'] = (
+                    overall_summary['total_winning_trades'] / overall_summary['total_positions'] * 100
+                ) if overall_summary['total_positions'] > 0 else 0
+            else:
+                overall_summary['overall_win_rate'] = 0
+            
+            # Send completion event
+            yield {
+                "event": "backtest_completed",
+                "data": json.dumps({
+                    "backtest_id": backtest_id,
+                    "overall_summary": {
+                        "total_days": overall_summary['days_tested'],
+                        "total_trades": overall_summary['total_positions'],
+                        "total_pnl": f"{overall_summary['total_pnl']:.2f}",
+                        "win_rate": f"{overall_summary['overall_win_rate']:.2f}",
+                        "largest_win": f"{overall_summary['largest_win']:.2f}",
+                        "largest_loss": f"{overall_summary['largest_loss']:.2f}"
+                    }
+                })
+            }
+            
+            print(f"[API] Backtest complete: {backtest_id}")
+            
+        except Exception as e:
+            import traceback
+            print(f"[API ERROR] Stream failed: {str(e)}")
+            print(traceback.format_exc())
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)})
+            }
+    
+    return EventSourceResponse(event_generator())
+
+@app.get("/api/v1/backtest/{backtest_id}/day/{date}")
+async def download_day_details(backtest_id: str, date: str):
+    """
+    Download detailed trades and diagnostics for a specific day as ZIP file.
+    
+    Returns: ZIP containing:
+    - trades_daily.json.gz
+    - diagnostics_export.json.gz
+    """
+    try:
+        # Parse backtest_id to get strategy_id
+        strategy_id, _, _ = parse_backtest_id(backtest_id)
+        
+        # Validate date format
+        try:
+            datetime.strptime(date, '%Y-%m-%d')
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+        # Get day directory
+        day_dir = get_day_dir(strategy_id, date)
+        
+        # Check if files exist
+        trades_file = f"{day_dir}/trades_daily.json.gz"
+        diagnostics_file = f"{day_dir}/diagnostics_export.json.gz"
+        
+        if not os.path.exists(trades_file) or not os.path.exists(diagnostics_file):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Data not found for {date}. Run backtest first."
+            )
+        
+        # Create ZIP in memory
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(trades_file, 'trades_daily.json.gz')
+            zf.write(diagnostics_file, 'diagnostics_export.json.gz')
+        
+        zip_buffer.seek(0)
+        
+        print(f"[API] Downloaded day details: {date}")
+        
+        return StreamingResponse(
+            zip_buffer,
+            media_type='application/zip',
+            headers={
+                'Content-Disposition': f'attachment; filename=backtest_{date}.zip'
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[API ERROR] Download failed: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to download day details: {str(e)}"
+        )
+
 
 if __name__ == "__main__":
     import uvicorn

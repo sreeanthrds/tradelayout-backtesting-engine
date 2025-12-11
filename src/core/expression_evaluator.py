@@ -833,6 +833,10 @@ class ExpressionEvaluator:
         elif value_type == 'indicator':
             if not all(key in expression for key in ['name', 'offset']):
                 raise ValueError("Indicator configuration must include 'name' and 'offset'")
+            # DEBUG (disabled)
+            # tick_count = (self.context or {}).get('tick_count', 0)
+            # if tick_count <= 200:
+            #     print(f"[Tick {tick_count}] 🎯 Evaluating indicator: {expression.get('name')}, offset: {expression.get('offset')}")
             return self._get_indicator_value(expression)
 
         elif value_type in ('market_data', 'candle_data'):
@@ -939,6 +943,8 @@ class ExpressionEvaluator:
         parameter = config.get('parameter')
         timeframe_id = config.get('timeframeId')
         
+        # DEBUG (disabled)
+        
         if not timeframe_id:
             return None
         
@@ -946,6 +952,8 @@ class ExpressionEvaluator:
         key = f"{symbol}:{timeframe_id}"
         candles_dict = (self.context or {}).get('candle_df_dict', {})
         candles = candles_dict.get(key)
+        
+        # DEBUG (disabled)
         
         if not candles:
             return None
@@ -960,15 +968,31 @@ class ExpressionEvaluator:
         if isinstance(candles, list):
             try:
                 # Get candle at offset position from end
-                target_index = offset  # -1 = last, -2 = second to last
-                if target_index >= 0:
-                    target_index = target_index - len(candles)  # Convert to negative index
+                # offset -1 = previous completed candle (candles[-2])
+                # offset -2 = 2 candles back (candles[-3])
+                # offset  0 = current forming candle (candles[-1])
+                target_index = offset - 1  # Convert UI offset to array index
                 
                 if abs(target_index) > len(candles):
                     return None
                 
                 candle = candles[target_index]
-                value = candle.get(field)
+                
+                # DEBUG (disabled)
+                
+                # Try to get value from candle's indicators dict
+                indicators = candle.get('indicators', {})
+                value = indicators.get(field) if indicators else None
+                
+                # If not found, try mapping database key to generated key
+                if value is None:
+                    data_manager = (self.context or {}).get('data_manager')
+                    if data_manager and hasattr(data_manager, 'indicator_key_mappings') and indicators:
+                        mappings = data_manager.indicator_key_mappings.get(key, {})
+                        mapped_key = mappings.get(field)
+                        if mapped_key:
+                            value = indicators.get(mapped_key)
+                            # DEBUG (disabled)
                 
                 return float(value) if value is not None else None
             except Exception as e:
@@ -1028,6 +1052,13 @@ class ExpressionEvaluator:
         candles_dict = (self.context or {}).get('candle_df_dict', {})
         candles = candles_dict.get(key)
         
+        # DEBUG: Log available context keys
+        tick_count = (self.context or {}).get('tick_count', 0)
+        if tick_count <= 5 and not candles:
+            print(f"\n[Tick {tick_count}] _get_market_data_value: No candles found for key: {key}")
+            print(f"  Available context keys: {list((self.context or {}).keys())[:10]}")
+            print(f"  candle_df_dict keys: {list(candles_dict.keys())}")
+        
         if not candles:
             return None
         
@@ -1038,6 +1069,8 @@ class ExpressionEvaluator:
         
         offset = config.get('offset', 0)
         field = str(field).lower()
+        
+        # DEBUG (disabled)
         
         # For backtesting, candles is a list of dicts
         # Last element is the forming candle, rest are completed candles
@@ -1068,7 +1101,32 @@ class ExpressionEvaluator:
                     )
                     return None
                 
+                # Try to get value from candle
                 value = candle.get(field)
+                
+                # If not found directly and field is not OHLCV, check indicators
+                if value is None and field not in ohlcv_fields:
+                    indicators = candle.get('indicators', {})
+                    tick_count = (self.context or {}).get('tick_count', 0)
+                    if indicators:
+                        # Try direct lookup first
+                        value = indicators.get(field)
+                        
+                        # If not found, try mapping database key to generated key
+                        if value is None:
+                            data_manager = (self.context or {}).get('data_manager')
+                            if data_manager and hasattr(data_manager, 'indicator_key_mappings'):
+                                mappings = data_manager.indicator_key_mappings.get(key, {})
+                                mapped_key = mappings.get(field)
+                                if mapped_key:
+                                    value = indicators.get(mapped_key)
+                                    # DEBUG: Log successful mapping for first 200 ticks
+                                    if tick_count <= 200:
+                                        print(f"[Tick {tick_count}] ✅ Mapped '{field}' → '{mapped_key}' = {value}")
+                                elif tick_count <= 100:
+                                    print(f"[Tick {tick_count}] ⚠️ No mapping for '{field}' in {key}")
+                                    print(f"  Available mappings: {list(mappings.keys())}")
+                                    print(f"  Indicators in candle: {list(indicators.keys())}")
                 
                 # DEBUG at tick 115
                 tick_count = (self.context or {}).get('tick_count', 0)

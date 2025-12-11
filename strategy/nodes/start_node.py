@@ -7,6 +7,7 @@ from src.utils.logger import log_debug, log_info, log_warning, log_error, log_cr
 from src.utils.recursive_processor import process_recursive
 from src.services.end_condition_manager import EndConditionManager
 from src.utils.pnl_debug_logger import PnLDebugLogger
+from src.utils.ltp_filter import filter_ltp_store, get_position_symbols_from_context
 
 from .base_node import BaseNode
 
@@ -520,3 +521,67 @@ class StartNode(BaseNode):
     # REMOVED: _check_all_nodes_inactive() - Moved to EndConditionManager.check_all_nodes_inactive()
     # REMOVED: _close_all_positions_at_market() - Never called, placeholder method
     # REMOVED: _send_alert_notification() - Never called, placeholder method
+    
+    def _get_evaluation_data(self, context: Dict[str, Any], node_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract diagnostic data for StartNode.
+        
+        Captures strategy-level information: end conditions, termination reasons, P&L state.
+        
+        Args:
+            context: Execution context
+            node_result: Result from _execute_node_logic
+        
+        Returns:
+            Dictionary with diagnostic data
+        """
+        diagnostic_data = {}
+        
+        # Capture end condition check results
+        end_condition_result = node_result.get('end_condition_result', {})
+        if end_condition_result:
+            diagnostic_data['end_conditions'] = {
+                'should_end': end_condition_result.get('should_end', False),
+                'reason': end_condition_result.get('reason'),
+                'triggered_condition': end_condition_result.get('triggered_condition'),
+                'condition_details': end_condition_result.get('details', {})
+            }
+            
+            # If strategy is ending, capture termination details
+            if end_condition_result.get('should_end'):
+                gps = context.get('gps')
+                positions = gps.get_all_positions() if gps else []
+                
+                diagnostic_data['termination'] = {
+                    'reason': end_condition_result.get('reason'),
+                    'timestamp': str(context.get('current_timestamp')),
+                    'tick_count': context.get('tick_count', 0),
+                    'open_positions': len([p for p in positions if p.get('status') == 'open']),
+                    'total_positions': len(positions)
+                }
+        
+        # Capture strategy configuration
+        diagnostic_data['strategy_config'] = {
+            'symbol': self.symbol,
+            'timeframe': self.timeframe,
+            'exchange': self.exchange,
+            'trading_instrument': self.trading_instrument,
+            'end_conditions_configured': len(self.end_conditions) if self.end_conditions else 0
+        }
+        
+        # Add P&L snapshot if available
+        if context.get('gps'):
+            gps = context.get('gps')
+            positions = gps.get_all_positions()
+            closed_positions = [p for p in positions if p.get('status') == 'closed']
+            
+            if closed_positions:
+                total_pnl = sum(p.get('pnl', 0) for p in closed_positions)
+                diagnostic_data['pnl_snapshot'] = {
+                    'total_pnl': round(total_pnl, 2),
+                    'closed_positions': len(closed_positions),
+                    'winning_trades': len([p for p in closed_positions if p.get('pnl', 0) > 0]),
+                    'losing_trades': len([p for p in closed_positions if p.get('pnl', 0) < 0])
+                }
+        
+        return diagnostic_data

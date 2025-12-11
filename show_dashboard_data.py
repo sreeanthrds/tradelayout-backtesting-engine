@@ -154,131 +154,268 @@ def track_close(self, pos_id, exit_data, tick_time=None):
 GlobalPositionStore.add_position = track_add
 GlobalPositionStore.close_position = track_close
 
-print('='*80)
-print('GENERATING DASHBOARD DATA')
-print('='*80)
-
-config = BacktestConfig(
-    strategy_ids=['4a7a1a31-e209-4b23-891a-3899fb8e4c28'],
-    backtest_date=date(2024, 10, 1),
-    debug_mode=None
-)
-
-engine = CentralizedBacktestEngine(config)
-engine.run()
-
-# Calculate summary statistics
-positions = dashboard_data['positions']
-closed_positions = [p for p in positions if p['status'] == 'CLOSED']
-open_positions = [p for p in positions if p['status'] == 'OPEN']
-
-total_pnl = sum(p['pnl'] for p in closed_positions if p['pnl'] is not None)
-winning_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] > 0]
-losing_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] < 0]
-breakeven_trades = [p for p in closed_positions if p['pnl'] == 0]
-
-avg_win = sum(p['pnl'] for p in winning_trades) / len(winning_trades) if winning_trades else 0
-avg_loss = sum(p['pnl'] for p in losing_trades) / len(losing_trades) if losing_trades else 0
-avg_duration = sum(p['duration_minutes'] for p in closed_positions if p['duration_minutes']) / len(closed_positions) if closed_positions else 0
-
-dashboard_data['summary'] = {
-    'total_positions': len(positions),
-    'closed_positions': len(closed_positions),
-    'open_positions': len(open_positions),
-    'total_pnl': round(total_pnl, 2),
-    'winning_trades': len(winning_trades),
-    'losing_trades': len(losing_trades),
-    'breakeven_trades': len(breakeven_trades),
-    'win_rate': round(len(winning_trades) / len(closed_positions) * 100, 2) if closed_positions else 0,
-    'avg_win': round(avg_win, 2),
-    'avg_loss': round(avg_loss, 2),
-    'avg_duration_minutes': round(avg_duration, 2),
-    'largest_win': round(max((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
-    'largest_loss': round(min((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
-    're_entries': len([p for p in positions if p['re_entry_num'] > 0])
-}
-
-# Display formatted results
-print('\n' + '='*80)
-print('📊 DASHBOARD DATA')
-print('='*80)
-
-print(f"\n{'='*80}")
-print('📝 ALL POSITIONS')
-print(f"{'='*80}")
-
-for i, pos in enumerate(positions, 1):
-    re_entry_label = f" (RE-ENTRY {pos['re_entry_num']})" if pos['re_entry_num'] > 0 else ""
-    status_icon = '✅' if pos['status'] == 'CLOSED' else '⏳'
+def run_dashboard_backtest(strategy_id: str, backtest_date):
+    """
+    Run a backtest for a specific strategy and date, returning dashboard data.
     
-    print(f"\n{i}. {status_icon} Position {pos['position_id']}{re_entry_label}")
-    print(f"   Contract: {pos['symbol']}")
-    print(f"   Strike: {pos['strike']} {pos['option_type']}")
-    print(f"   Entry Node: {pos['entry_node_id']} @ {pos['entry_timestamp']}")
-    print(f"   Entry Price: ₹{pos['entry_price']:.2f}")
-    print(f"   Quantity: {pos['quantity']} ({pos['lots']} lots × {pos['lot_size']})")
-    print(f"   NIFTY Spot: ₹{pos['nifty_spot_at_entry']:.2f}")
+    Args:
+        strategy_id: UUID string of the strategy
+        backtest_date: date object for the backtest
+        
+    Returns:
+        Dictionary with strategy_id, positions, and summary
+    """
+    # Reset dashboard_data for this run
+    dashboard_data['positions'] = []
+    dashboard_data['strategy_id'] = strategy_id
+    dashboard_data['backtest_date'] = backtest_date.strftime('%Y-%m-%d') if hasattr(backtest_date, 'strftime') else str(backtest_date)
     
-    if pos['status'] == 'CLOSED':
-        pnl_icon = '🟢' if pos['pnl'] >= 0 else '🔴'
-        print(f"   Exit Node: {pos['exit_node_id']} @ {pos['exit_timestamp']}")
-        print(f"   Exit Price: ₹{pos['exit_price']:.2f}")
-        print(f"   Duration: {pos['duration_minutes']:.1f} minutes")
-        print(f"   P&L: {pnl_icon} ₹{pos['pnl']:.2f} ({pos['pnl_percentage']:.2f}%)")
-        print(f"   Exit Reason: {pos['exit_reason']}")
+    # Run the backtest
+    config = BacktestConfig(
+        strategy_ids=[strategy_id],
+        backtest_date=backtest_date if isinstance(backtest_date, date) else date.fromisoformat(str(backtest_date)),
+        debug_mode=None
+    )
+    
+    engine = CentralizedBacktestEngine(config)
+    engine.run()
+    
+    # Extract diagnostics from engine
+    diagnostics_export = {}
+    if hasattr(engine, 'centralized_processor'):
+        # Get diagnostics from strategy_state (centralized processor)
+        active_strategies = engine.centralized_processor.strategy_manager.active_strategies
+        
+        # For single-strategy backtests, get first strategy
+        if active_strategies:
+            strategy_state = list(active_strategies.values())[0]
+            diagnostics = strategy_state.get('diagnostics')
+            
+            if diagnostics:
+                # NOTE: current_state is NOT included for backtesting.
+                # It's only relevant for live simulation where we need real-time state tracking.
+                # For backtesting, we only need the events_history for UI diagnostics.
+                diagnostics_export = {
+                    'events_history': diagnostics.get_all_events({
+                        'node_events_history': strategy_state.get('node_events_history', {})
+                    })
+                }
+    elif hasattr(engine, 'context_adapter'):
+        # Fallback: Old engine using context_adapter
+        # NOTE: current_state is NOT included for backtesting (only for live simulation)
+        diagnostics = engine.context_adapter.diagnostics
+        diagnostics_export = {
+            'events_history': diagnostics.get_all_events({'node_events_history': engine.context_adapter.node_events_history})
+        }
+    
+    dashboard_data['diagnostics'] = diagnostics_export
+    
+    # Calculate summary statistics
+    positions = dashboard_data['positions']
+    closed_positions = [p for p in positions if p['status'] == 'CLOSED']
+    open_positions = [p for p in positions if p['status'] == 'OPEN']
+    
+    total_pnl = sum(p['pnl'] for p in closed_positions if p['pnl'] is not None)
+    winning_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] > 0]
+    losing_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] < 0]
+    breakeven_trades = [p for p in closed_positions if p['pnl'] == 0]
+    
+    avg_win = sum(p['pnl'] for p in winning_trades) / len(winning_trades) if winning_trades else 0
+    avg_loss = sum(p['pnl'] for p in losing_trades) / len(losing_trades) if losing_trades else 0
+    avg_duration = sum(p['duration_minutes'] for p in closed_positions if p['duration_minutes']) / len(closed_positions) if closed_positions else 0
+    
+    dashboard_data['summary'] = {
+        'total_positions': len(positions),
+        'closed_positions': len(closed_positions),
+        'open_positions': len(open_positions),
+        'total_pnl': round(total_pnl, 2),
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'breakeven_trades': len(breakeven_trades),
+        'win_rate': round(len(winning_trades) / len(closed_positions) * 100, 2) if closed_positions else 0,
+        'avg_win': round(avg_win, 2),
+        'avg_loss': round(avg_loss, 2),
+        'avg_duration_minutes': round(avg_duration, 2),
+        'largest_win': round(max((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
+        'largest_loss': round(min((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
+        're_entries': len([p for p in positions if p['re_entry_num'] > 0])
+    }
+    
+    return dict(dashboard_data)
 
-print(f"\n{'='*80}")
-print('📊 SUMMARY STATISTICS')
-print(f"{'='*80}")
+def format_value_for_display(value, expr_str):
+    """
+    Format a value for display in diagnostics.
+    
+    Args:
+        value: The value to format
+        expr_str: String representation of the expression
+        
+    Returns:
+        Formatted string
+    """
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}" if isinstance(value, float) else str(value)
+    return str(value)
 
-summary = dashboard_data['summary']
-print(f"\nTotal Positions: {summary['total_positions']}")
-print(f"  Closed: {summary['closed_positions']}")
-print(f"  Open: {summary['open_positions']}")
-print(f"  Re-entries: {summary['re_entries']}")
+def substitute_condition_values(preview_str, diagnostic_data):
+    """
+    Substitute variable names with their actual values in a condition preview string.
+    
+    Args:
+        preview_str: The condition preview string
+        diagnostic_data: Dictionary containing condition evaluation data
+        
+    Returns:
+        String with substituted values
+    """
+    if not diagnostic_data or 'conditions' not in diagnostic_data:
+        return preview_str
+    
+    result = preview_str
+    for cond in diagnostic_data.get('conditions', []):
+        if 'lhs_expr' in cond and 'lhs_value' in cond:
+            lhs_expr = str(cond['lhs_expr'])
+            lhs_val = format_value_for_display(cond['lhs_value'], lhs_expr)
+            result = result.replace(lhs_expr, lhs_val)
+        
+        if 'rhs_expr' in cond and 'rhs_value' in cond:
+            rhs_expr = str(cond['rhs_expr'])
+            rhs_val = format_value_for_display(cond['rhs_value'], rhs_expr)
+            result = result.replace(rhs_expr, rhs_val)
+    
+    return result
 
-print(f"\nP&L Summary:")
-pnl_icon = '🟢' if summary['total_pnl'] >= 0 else '🔴'
-print(f"  Total P&L: {pnl_icon} ₹{summary['total_pnl']:.2f}")
-print(f"  Largest Win: 🟢 ₹{summary['largest_win']:.2f}")
-print(f"  Largest Loss: 🔴 ₹{summary['largest_loss']:.2f}")
-print(f"  Average Win: ₹{summary['avg_win']:.2f}")
-print(f"  Average Loss: ₹{summary['avg_loss']:.2f}")
+if __name__ == "__main__":
+    print('='*80)
+    print('GENERATING DASHBOARD DATA')
+    print('='*80)
 
-print(f"\nTrade Statistics:")
-print(f"  Winning Trades: {summary['winning_trades']}")
-print(f"  Losing Trades: {summary['losing_trades']}")
-print(f"  Breakeven Trades: {summary['breakeven_trades']}")
-print(f"  Win Rate: {summary['win_rate']:.2f}%")
-print(f"  Avg Duration: {summary['avg_duration_minutes']:.1f} minutes")
+    config = BacktestConfig(
+        strategy_ids=['4a7a1a31-e209-4b23-891a-3899fb8e4c28'],
+        backtest_date=date(2024, 10, 1),
+        debug_mode=None
+    )
 
-# Save to JSON file
-output_file = 'backtest_dashboard_data.json'
-with open(output_file, 'w') as f:
-    json.dump(dashboard_data, f, indent=2)
+    engine = CentralizedBacktestEngine(config)
+    engine.run()
 
-print(f"\n{'='*80}")
-print(f'✅ Dashboard data saved to: {output_file}')
-print(f"{'='*80}")
+    # Calculate summary statistics
+    positions = dashboard_data['positions']
+    closed_positions = [p for p in positions if p['status'] == 'CLOSED']
+    open_positions = [p for p in positions if p['status'] == 'OPEN']
 
-# Display JSON structure preview
-print(f"\n{'='*80}")
-print('📋 JSON STRUCTURE PREVIEW')
-print(f"{'='*80}")
-print(json.dumps({
-    'strategy_id': dashboard_data['strategy_id'],
-    'backtest_date': dashboard_data['backtest_date'],
-    'positions': [
-        'Array of position objects with:',
-        '  - position_id, entry_node_id, exit_node_id',
-        '  - entry_time, exit_time, timestamps',
-        '  - instrument, strike, option_type, expiry',
-        '  - entry_price, exit_price, quantity',
-        '  - pnl, pnl_percentage, duration',
-        '  - status, exit_reason, re_entry_num',
-        '  - nifty_spot_at_entry, etc.'
-    ],
-    'summary': dashboard_data['summary']
-}, indent=2))
+    total_pnl = sum(p['pnl'] for p in closed_positions if p['pnl'] is not None)
+    winning_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] > 0]
+    losing_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] < 0]
+    breakeven_trades = [p for p in closed_positions if p['pnl'] == 0]
 
-print(f"\n{'='*80}")
+    avg_win = sum(p['pnl'] for p in winning_trades) / len(winning_trades) if winning_trades else 0
+    avg_loss = sum(p['pnl'] for p in losing_trades) / len(losing_trades) if losing_trades else 0
+    avg_duration = sum(p['duration_minutes'] for p in closed_positions if p['duration_minutes']) / len(closed_positions) if closed_positions else 0
+
+    dashboard_data['summary'] = {
+        'total_positions': len(positions),
+        'closed_positions': len(closed_positions),
+        'open_positions': len(open_positions),
+        'total_pnl': round(total_pnl, 2),
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'breakeven_trades': len(breakeven_trades),
+        'win_rate': round(len(winning_trades) / len(closed_positions) * 100, 2) if closed_positions else 0,
+        'avg_win': round(avg_win, 2),
+        'avg_loss': round(avg_loss, 2),
+        'avg_duration_minutes': round(avg_duration, 2),
+        'largest_win': round(max((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
+        'largest_loss': round(min((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
+        're_entries': len([p for p in positions if p['re_entry_num'] > 0])
+    }
+
+    # Display formatted results
+    print('\n' + '='*80)
+    print('📊 DASHBOARD DATA')
+    print('='*80)
+
+    print(f"\n{'='*80}")
+    print('📝 ALL POSITIONS')
+    print(f"{'='*80}")
+
+    for i, pos in enumerate(positions, 1):
+        re_entry_label = f" (RE-ENTRY {pos['re_entry_num']})" if pos['re_entry_num'] > 0 else ""
+        status_icon = '✅' if pos['status'] == 'CLOSED' else '⏳'
+        
+        print(f"\n{i}. {status_icon} Position {pos['position_id']}{re_entry_label}")
+        print(f"   Contract: {pos['symbol']}")
+        print(f"   Strike: {pos['strike']} {pos['option_type']}")
+        print(f"   Entry Node: {pos['entry_node_id']} @ {pos['entry_timestamp']}")
+        print(f"   Entry Price: ₹{pos['entry_price']:.2f}")
+        print(f"   Quantity: {pos['quantity']} ({pos['lots']} lots × {pos['lot_size']})")
+        print(f"   NIFTY Spot: ₹{pos['nifty_spot_at_entry']:.2f}")
+        
+        if pos['status'] == 'CLOSED':
+            pnl_icon = '🟢' if pos['pnl'] >= 0 else '🔴'
+            print(f"   Exit Node: {pos['exit_node_id']} @ {pos['exit_timestamp']}")
+            print(f"   Exit Price: ₹{pos['exit_price']:.2f}")
+            print(f"   Duration: {pos['duration_minutes']:.1f} minutes")
+            print(f"   P&L: {pnl_icon} ₹{pos['pnl']:.2f} ({pos['pnl_percentage']:.2f}%)")
+            print(f"   Exit Reason: {pos['exit_reason']}")
+
+    print(f"\n{'='*80}")
+    print('📊 SUMMARY STATISTICS')
+    print(f"{'='*80}")
+
+    summary = dashboard_data['summary']
+    print(f"\nTotal Positions: {summary['total_positions']}")
+    print(f"  Closed: {summary['closed_positions']}")
+    print(f"  Open: {summary['open_positions']}")
+    print(f"  Re-entries: {summary['re_entries']}")
+
+    print(f"\nP&L Summary:")
+    pnl_icon = '🟢' if summary['total_pnl'] >= 0 else '🔴'
+    print(f"  Total P&L: {pnl_icon} ₹{summary['total_pnl']:.2f}")
+    print(f"  Largest Win: 🟢 ₹{summary['largest_win']:.2f}")
+    print(f"  Largest Loss: 🔴 ₹{summary['largest_loss']:.2f}")
+    print(f"  Average Win: ₹{summary['avg_win']:.2f}")
+    print(f"  Average Loss: ₹{summary['avg_loss']:.2f}")
+
+    print(f"\nTrade Statistics:")
+    print(f"  Winning Trades: {summary['winning_trades']}")
+    print(f"  Losing Trades: {summary['losing_trades']}")
+    print(f"  Breakeven Trades: {summary['breakeven_trades']}")
+    print(f"  Win Rate: {summary['win_rate']:.2f}%")
+    print(f"  Avg Duration: {summary['avg_duration_minutes']:.1f} minutes")
+
+    # Save to JSON file
+    output_file = 'backtest_dashboard_data.json'
+    with open(output_file, 'w') as f:
+        json.dump(dashboard_data, f, indent=2)
+
+    print(f"\n{'='*80}")
+    print(f'✅ Dashboard data saved to: {output_file}')
+    print(f"{'='*80}")
+
+    # Display JSON structure preview
+    print(f"\n{'='*80}")
+    print('📋 JSON STRUCTURE PREVIEW')
+    print(f"{'='*80}")
+    print(json.dumps({
+        'strategy_id': dashboard_data['strategy_id'],
+        'backtest_date': dashboard_data['backtest_date'],
+        'positions': [
+            'Array of position objects with:',
+            '  - position_id, entry_node_id, exit_node_id',
+            '  - entry_time, exit_time, timestamps',
+            '  - instrument, strike, option_type, expiry',
+            '  - entry_price, exit_price, quantity',
+            '  - pnl, pnl_percentage, duration',
+            '  - status, exit_reason, re_entry_num',
+            '  - nifty_spot_at_entry, etc.'
+        ],
+        'summary': dashboard_data['summary']
+    }, indent=2))
+
+    print(f"\n{'='*80}")

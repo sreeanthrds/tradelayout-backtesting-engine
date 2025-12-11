@@ -10,12 +10,12 @@ from typing import Dict, Any
 class ClickHouseConfig:
     """ClickHouse database configuration."""
     
-    # Connection settings
-    HOST = os.getenv('CLICKHOUSE_HOST', 'blo67czt7m.ap-south-1.aws.clickhouse.cloud')
+    # Connection settings - Using localhost
+    HOST = os.getenv('CLICKHOUSE_HOST', 'localhost')
     USER = os.getenv('CLICKHOUSE_USER', 'default')
-    PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', '0DNor8RIL2.7r')
-    SECURE = os.getenv('CLICKHOUSE_SECURE', 'true').lower() == 'true'
-    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'default')
+    PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', '')
+    SECURE = os.getenv('CLICKHOUSE_SECURE', 'false').lower() == 'true'
+    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'tradelayout')
     
     # Table settings
     TABLE_NAME = os.getenv('CLICKHOUSE_TABLE', 'nse_ticks_stocks')

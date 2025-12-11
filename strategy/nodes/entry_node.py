@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 from src.utils.logger import log_debug, log_info, log_warning, log_error, log_critical
+from src.utils.ltp_filter import filter_ltp_store, get_position_symbols_from_context
 
 from .base_node import BaseNode
 
@@ -31,6 +32,16 @@ class EntryNode(BaseNode):
         # NOTE: instrument will be set from strategy config in execute(), not from node data
         self.instrument = None  # Will be set from context during execution
         self.action_type = data.get('actionType', 'entry')
+        
+        # Maximum entries allowed (1 initial + re-entries)
+        # Default = 1 means no re-entries allowed
+        # BUG FIX: maxEntries is in positions[-1] (last position), not in node data
+        if self.positions and len(self.positions) > 0:
+            self.maxEntries = self.positions[-1].get('maxEntries', 1)
+            print(f"🔢 Entry Node {self.id}: maxEntries={self.maxEntries} (from positions[-1])")
+        else:
+            self.maxEntries = data.get('maxEntries', 1)  # Fallback to node data
+            print(f"🔢 Entry Node {self.id}: maxEntries={self.maxEntries} (from node data, fallback)")
 
         # Tracking (optional)
         self._orders_generated = 0
@@ -149,6 +160,7 @@ class EntryNode(BaseNode):
                     'order': order_data,
                     'position_stored': position_result.get('success', False),
                     'position': position_result.get('position'),
+                    'position_id': position_result.get('position_id'),  # Add position_id for diagnostics
                     'order_count': 1,
                     'logic_completed': True  # Order filled = deactivate self
                 }
@@ -261,6 +273,7 @@ class EntryNode(BaseNode):
                     'order': order_data,
                     'position_stored': position_result.get('success', False),
                     'position': position_result.get('position'),
+                    'position_id': position_result.get('position_id'),  # Add position_id for diagnostics
                     'order_count': 1,
                     'logic_completed': True  # Becomes INACTIVE - prevents re-execution
                 }
@@ -425,11 +438,8 @@ class EntryNode(BaseNode):
 
         # Resolve instrument if it's a dynamic F&O symbol
         resolved_instrument = trading_instrument
-        print(f"\n🔍 [F&O CHECK] Trading instrument: {trading_instrument}")
-        print(f"   Is dynamic F&O? {self.is_dynamic_fo_symbol(trading_instrument)}")
         
         if self.is_dynamic_fo_symbol(trading_instrument):
-            print(f"   ✅ Entering F&O resolution block...")
             # Ensure F&O resolver is initialized
             self._ensure_fo_resolver(context)
             
@@ -448,21 +458,12 @@ class EntryNode(BaseNode):
             
             # Load option contract data into ltp_store
             data_manager = context.get('data_manager')
-            print(f"\n🔍 [OPTION LOAD CHECK]")
-            print(f"   data_manager exists? {data_manager is not None}")
-            print(f"   ':OPT:' in resolved_instrument? {':OPT:' in resolved_instrument}")
-            print(f"   resolved_instrument = {resolved_instrument}")
             
             if data_manager and ':OPT:' in resolved_instrument:
-                print(f"\n🔄 Loading option contract: {resolved_instrument}")
                 option_ltp = data_manager.load_option_contract(
                     contract_key=resolved_instrument,
                     current_timestamp=current_timestamp
                 )
-                if option_ltp:
-                    print(f"   ✅ Option LTP loaded: ₹{option_ltp:.2f}")
-                else:
-                    print(f"   ⚠️  Could not load option LTP (will use fallback)")
         
         # Determine exchange based on instrument type
         if ':OPT:' in resolved_instrument or ':FUT:' in resolved_instrument:
@@ -477,10 +478,6 @@ class EntryNode(BaseNode):
         ltp_store = context.get('ltp_store', {})
         price = 0
         
-        # Debug: Show what's in ltp_store
-        print(f"\n🔍 [ENTRY DEBUG] Checking LTP for resolved instrument: {resolved_instrument}")
-        print(f"   Available keys in ltp_store: {list(ltp_store.keys())}")
-        
         # Try to get LTP for the resolved instrument
         if resolved_instrument in ltp_store:
             ltp_data = ltp_store.get(resolved_instrument)
@@ -488,11 +485,7 @@ class EntryNode(BaseNode):
                 price = ltp_data.get('ltp') or ltp_data.get('price', 0)
             else:
                 price = ltp_data
-            print(f"   ✅ Found LTP for {resolved_instrument}: {price}")
         else:
-            print(f"   ❌ No LTP found for {resolved_instrument}")
-            print(f"   Trying base instrument: {self.instrument}")
-            
             # Fallback: try base instrument (for index/equity)
             if self.instrument in ltp_store:
                 ltp_data = ltp_store.get(self.instrument)
@@ -500,7 +493,6 @@ class EntryNode(BaseNode):
                     price = ltp_data.get('ltp') or ltp_data.get('price', 0)
                 else:
                     price = ltp_data
-                print(f"   ✅ Found LTP for base {self.instrument}: {price}")
         
         # Check if we have OrderManager in context (live trading)
         order_manager = context.get('order_manager')
@@ -680,17 +672,48 @@ class EntryNode(BaseNode):
             current_timestamp = context.get('current_timestamp')
 
             # Use stable position ID from JSON config (maps to Entry node). Re-entries stored as transactions.
+            
+            # OLD LOGIC: Get reEntryNum from node state (propagated from parent)
             try:
-                re_entry_num_raw = self._get_node_state(context).get('reEntryNum', 0) or 0
-                re_entry_num = int(re_entry_num_raw)
+                re_entry_num_old = self._get_node_state(context).get('reEntryNum', 0) or 0
+                re_entry_num_old = int(re_entry_num_old)
             except (ValueError, TypeError) as e:
                 raise ValueError(
-                    f"EntryNode {self.id}: Invalid reEntryNum '{re_entry_num_raw}' "
-                    f"(type: {type(re_entry_num_raw).__name__}): {e}"
+                    f"EntryNode {self.id}: Invalid reEntryNum from node_state '{re_entry_num_old}' "
+                    f"(type: {type(re_entry_num_old).__name__}): {e}"
                 ) from e
+            
             # Prefer VPI as the stable position identifier; fallback to explicit id; finally to node-based id
             # Normalize date-dependent fields only for timestamps, not for identifiers
             position_id = position_config.get('vpi') or position_config.get('id') or f"pos_{self.id}"
+            
+            # NEW LOGIC: Calculate reEntryNum from position_num (GPS is source of truth)
+            context_manager = context.get('context_manager')
+            gps = context_manager.gps if context_manager else None
+            if gps:
+                # Get the next position_num that will be assigned
+                next_position_num = gps.position_counters.get(position_id, 1)
+                re_entry_num_new = next_position_num - 1  # reEntryNum = position_num - 1
+                
+                # COMPARISON LOGGING: Compare old vs new calculation
+                if re_entry_num_old != re_entry_num_new:
+                    log_warning(
+                        f"EntryNode {self.id}: reEntryNum MISMATCH! "
+                        f"OLD (node_state)={re_entry_num_old}, NEW (position_num-1)={re_entry_num_new}, "
+                        f"position_id={position_id}, next_position_num={next_position_num}"
+                    )
+                else:
+                    log_info(
+                        f"EntryNode {self.id}: reEntryNum MATCH ✓ "
+                        f"value={re_entry_num_new}, position_id={position_id}"
+                    )
+                
+                # Use NEW calculation going forward
+                re_entry_num = re_entry_num_new
+            else:
+                # Fallback to old logic if GPS not available
+                log_warning(f"EntryNode {self.id}: GPS not available, using old reEntryNum={re_entry_num_old}")
+                re_entry_num = re_entry_num_old
 
             # Create entry data for GPS
             strategy_config = context.get('strategy_config', {})
@@ -746,6 +769,37 @@ class EntryNode(BaseNode):
                 # Get all node variables at this moment
                 node_variables_snapshot = dict(context_manager.gps.node_variables)
             
+            # DIAGNOSTIC: Retrieve diagnostic data from node_states
+            # Look for any signal node that has recently stored diagnostic data
+            diagnostic_data = {}
+            condition_preview = None
+            
+            try:
+                node_states = context.get('node_states', {})
+                
+                # Check all node states for diagnostic data
+                for node_id, node_state in node_states.items():
+                    node_diagnostic = node_state.get('diagnostic_data', {})
+                    node_preview = node_state.get('condition_preview')
+                    
+                    if node_diagnostic:
+                        diagnostic_data = node_diagnostic
+                        condition_preview = node_preview
+                        break  # Use first node with diagnostic data
+                
+            except Exception as e:
+                log_warning(f"EntryNode {self.id}: Error retrieving diagnostic data: {e}")
+            
+            # Enhanced diagnostic snapshot
+            entry_snapshot = {
+                'timestamp': current_timestamp.isoformat() if current_timestamp and hasattr(current_timestamp, 'isoformat') else str(current_timestamp),
+                'spot_price': underlying_price_on_entry,
+                'ltp_store_snapshot': dict(ltp_store) if ltp_store else {},
+                'conditions': diagnostic_data.get('conditions_evaluated', []),
+                'condition_preview': condition_preview,
+                'node_variables': node_variables_snapshot
+            }
+            
             entry_data = {
                 'node_id': self.id,
                 'instrument': self.instrument,  # Keep underlying for reference
@@ -757,6 +811,7 @@ class EntryNode(BaseNode):
                 'price': fill_price,  # Actual average fill price (entry price)
                 'entry_price': fill_price,  # Entry price for PNL calculation
                 'underlying_price_on_entry': underlying_price_on_entry,  # Underlying price when position opened
+                'nifty_spot': underlying_price_on_entry,  # Alias for compatibility
                 'side': position_config.get('positionType', 'buy'),
                 'strategy': strategy_name,
                 'order_id': order['order_id'],
@@ -768,7 +823,10 @@ class EntryNode(BaseNode):
                 'fill_price': fill_price,  # Actual average fill price
                 'reEntryNum': re_entry_num,
                 'node_variables': node_variables_snapshot,  # Snapshot of all node variables at entry
-                'position_config': position_config  # Store full config for reference
+                'position_config': position_config,  # Store full config for reference
+                'diagnostic_data': diagnostic_data,  # DIAGNOSTIC: Condition evaluations, expression values, candle data
+                'condition_preview': condition_preview,  # DIAGNOSTIC: Human-readable condition text (already correct for re-entry mode)
+                'entry_snapshot': entry_snapshot  # FULL DIAGNOSTIC SNAPSHOT at entry time
             }
 
             # Add position to GPS using BaseNode method with tick time
@@ -810,6 +868,21 @@ class EntryNode(BaseNode):
                 'error': str(e)
             }
 
+    def get_position_id(self, context: Dict[str, Any]) -> str:
+        """
+        Get the position ID for this entry node.
+        Used by ReEntrySignalNode to check position status.
+        
+        Args:
+            context: Execution context
+            
+        Returns:
+            Position ID string
+        """
+        position_config = self.positions[0] if self.positions else {}
+        position_id = position_config.get('vpi') or position_config.get('id') or f"pos_{self.id}"
+        return position_id
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get Entry Node statistics."""
         return {
@@ -819,3 +892,75 @@ class EntryNode(BaseNode):
             'instrument': self.instrument,
             'action_type': self.action_type
         }
+    
+    def _get_evaluation_data(self, context: Dict[str, Any], node_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract diagnostic data for EntryNode.
+        
+        Captures order placement details and position information.
+        
+        Args:
+            context: Execution context
+            node_result: Result from _execute_node_logic
+        
+        Returns:
+            Dictionary with diagnostic data
+        """
+        diagnostic_data = {}
+        
+        # Capture order details if order was generated
+        if node_result.get('order_generated'):
+            order_data = node_result.get('order', {})
+            
+            diagnostic_data['action'] = {
+                'type': 'place_order',
+                'action_type': self.action_type,
+                'order_id': node_result.get('order_id') or order_data.get('order_id'),
+                'symbol': order_data.get('symbol'),
+                'side': order_data.get('side'),
+                'quantity': order_data.get('quantity'),
+                'price': order_data.get('price'),
+                'order_type': order_data.get('order_type'),
+                'exchange': order_data.get('exchange'),
+                'status': node_result.get('order_status', 'COMPLETE' if node_result.get('logic_completed') else 'PENDING')
+            }
+        
+        # Capture position details if position was stored
+        if node_result.get('position_stored'):
+            position_data = node_result.get('position', {})
+            # position_id is in node_result, not position_data!
+            position_id = node_result.get('position_id')
+            
+            diagnostic_data['position'] = {
+                'position_id': position_id,  # From outer node_result dict
+                'symbol': position_data.get('symbol'),
+                'side': position_data.get('side'),
+                'quantity': position_data.get('quantity'),
+                'entry_price': position_data.get('entry_price') or position_data.get('price'),
+                'entry_time': str(position_data.get('entry_time') or position_data.get('timestamp')),
+                'node_id': self.id
+            }
+        
+        # Add entry node configuration
+        diagnostic_data['entry_config'] = {
+            'max_entries': self.maxEntries,
+            'position_num': self._positions_created,  # 1, 2, 3, ... (which position is this)
+            're_entry_num': self._positions_created - 1,  # 0, 1, 2, ... (how many re-entries)
+            'positions_config': [
+                {
+                    'side': pos.get('positionType'),
+                    'quantity': pos.get('quantity'),
+                    'option_type': pos.get('optionType')
+                }
+                for pos in self.positions
+            ]
+        }
+        
+        # Add reason if execution failed
+        if not node_result.get('executed') and node_result.get('reason'):
+            diagnostic_data['execution_status'] = {
+                'executed': False,
+                'reason': node_result.get('reason')
+            }
+        
+        return diagnostic_data

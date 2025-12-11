@@ -188,10 +188,12 @@ class StrategyMetadataBuilder:
                 ind_key = self._generate_indicator_key(ind_type, ind_params)
                 
                 # Create indicator metadata
+                # Use ind_id (database ID like 'rsi_1764509210372') as the key
+                # This will be mapped to ind_key (generated key like 'rsi(14,close)') in DataManager
                 ind_meta = IndicatorMetadata(
                     name=ind_type,
                     params=ind_params,
-                    key=ind_key
+                    key=ind_id  # Use database ID, not generated key
                 )
                 
                 indicators.add(ind_meta)

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 from src.utils.logger import log_debug, log_info, log_warning, log_error, log_critical
+from src.utils.ltp_filter import filter_ltp_store, get_position_symbols_from_context
 
 from .base_node import BaseNode
 
@@ -119,12 +120,24 @@ class ExitNode(BaseNode):
                 # Get target position ID from exit config
                 target_position_id = self.exit_config.get('targetPositionVpi')
                 
+                exit_price = None
+                pnl = None
+                
                 if target_position_id:
                     # Store exit in GPS to close the position
                     store_res = self._store_exit_in_global_store(context, target_position_id, order_data)
                     
                     if store_res.get('success'):
                         log_info(f"✅ Exit Node {self.id}: Position {target_position_id} closed successfully")
+                        
+                        # Extract exit_price from exit_data (fill_price)
+                        exit_data = store_res.get('exit_data', {})
+                        exit_price = exit_data.get('fill_price') or exit_data.get('price')
+                        
+                        # Calculate PnL from GPS position
+                        closed_pos = self.get_position(context, target_position_id)
+                        if closed_pos:
+                            pnl = closed_pos.get('pnl')
                     else:
                         log_error(f"❌ Exit Node {self.id}: Failed to close position {target_position_id}")
                 else:
@@ -142,6 +155,8 @@ class ExitNode(BaseNode):
                     'executed': True,
                     'order_generated': True,
                     'positions_closed': 1,
+                    'exit_price': exit_price,  # Add for diagnostics
+                    'pnl': pnl,  # Add for diagnostics
                     'logic_completed': True  # Exit filled = deactivate self
                 }
                 
@@ -210,13 +225,16 @@ class ExitNode(BaseNode):
                     'positions_closed': 0,
                     'logic_completed': True
                 }
-            # If already closed, return gracefully
+            
+            # Check if position is already closed (by another exit node)
             txns = pos.get('transactions', []) or []
             if txns and txns[-1].get('status') != 'open':
+                log_info(f"⏭️  Exit Node {self.id}: Position {target_position_id} already closed, skipping exit")
                 return {
                     'node_id': self.id,
                     'executed': True,
-                    'reason': f'No open positions to close for {target_position_id}',
+                    'reason': f'Position {target_position_id} already closed by another exit node',
+                    'exit_reason': 'position_already_closed',  # For diagnostics
                     'order_generated': False,
                     'positions_closed': 0,
                     'logic_completed': True
@@ -339,8 +357,21 @@ class ExitNode(BaseNode):
             
             # Backtesting mode: Immediate fill
             store_res = self._store_exit_in_global_store(context, target_position_id, exit_order)
+            
+            exit_price = None
+            pnl = None
+            
             if store_res.get('success'):
                 closed_ids.append(target_position_id)
+                
+                # Extract exit_price and pnl for diagnostics
+                exit_data = store_res.get('exit_data', {})
+                exit_price = exit_data.get('fill_price') or exit_data.get('price')
+                
+                closed_pos = self.get_position(context, target_position_id)
+                if closed_pos:
+                    pnl = closed_pos.get('pnl')
+                
                 try:
                     log_info(f"ExitNode {self.id}: closed {target_position_id}")
                 except Exception as e:
@@ -376,6 +407,8 @@ class ExitNode(BaseNode):
             'order_generated': len(closed_ids) > 0,
             'positions_closed': len(closed_ids),
             'closed_position_ids': closed_ids,
+            'exit_price': exit_price,  # Add for diagnostics
+            'pnl': pnl,  # Add for diagnostics
             'logic_completed': True
         }
 
@@ -876,3 +909,98 @@ class ExitNode(BaseNode):
                 child_node.reset_visited(context)
             except Exception as e:
                 log_warning(f"ExitNode {self.id}: Failed to reset visited flag for child {child_id}: {e}")
+    
+    def _get_evaluation_data(self, context: Dict[str, Any], node_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract diagnostic data for ExitNode.
+        
+        Captures exit order details, position closure information, and exit reasons.
+        
+        Args:
+            context: Execution context
+            node_result: Result from _execute_node_logic
+        
+        Returns:
+            Dictionary with diagnostic data
+        """
+        diagnostic_data = {}
+        
+        # Get current reEntryNum from node state
+        state = self._get_node_state(context)
+        current_reentry_num = int(state.get('reEntryNum', 0) or 0)
+        
+        # Get target position ID
+        target_position_id = self.exit_config.get('targetPositionVpi')
+        
+        # Add position identification (for trade reconstruction)
+        diagnostic_data['position'] = {
+            'position_id': target_position_id,
+            're_entry_num': current_reentry_num,
+        }
+        
+        # Capture exit action details
+        if node_result.get('order_generated'):
+            
+            # Try to get position details
+            pos = None
+            if target_position_id:
+                pos = self.get_position(context, target_position_id)
+            
+            diagnostic_data['action'] = {
+                'type': 'exit_order',
+                'target_position_id': target_position_id,
+                'exit_type': self.exit_config.get('exitType', 'market'),
+                'order_type': self.exit_config.get('orderType', 'MARKET')
+            }
+            
+            # Add position details if available
+            if pos:
+                diagnostic_data['action']['position_details'] = {
+                    'symbol': pos.get('symbol'),
+                    'side': pos.get('side'),
+                    'quantity': pos.get('quantity'),
+                    'entry_price': pos.get('entry_price'),
+                    'current_price': pos.get('current_price')
+                }
+        
+        # Capture closure information
+        if node_result.get('positions_closed', 0) > 0:
+            diagnostic_data['exit_result'] = {
+                'positions_closed': node_result.get('positions_closed'),
+                'exit_price': node_result.get('exit_price'),
+                'pnl': node_result.get('pnl'),
+                'exit_time': str(context.get('current_timestamp'))
+            }
+        
+        # Add exit configuration
+        diagnostic_data['exit_config'] = {
+            'target_position_vpi': self.exit_config.get('targetPositionVpi'),
+            'exit_type': self.exit_config.get('exitType'),
+            'order_type': self.exit_config.get('orderType'),
+            'has_re_entry': bool(self.re_entry_config),
+            'post_execution': bool(self.post_execution_config)
+        }
+        
+        # Add reason if execution failed or deferred
+        if not node_result.get('executed') and node_result.get('reason'):
+            diagnostic_data['execution_status'] = {
+                'executed': False,
+                'reason': node_result.get('reason')
+            }
+        
+        # Add skip reason if position was already closed
+        if node_result.get('exit_reason') == 'position_already_closed':
+            diagnostic_data['skip_reason'] = {
+                'executed': True,
+                'skipped': True,
+                'reason': node_result.get('reason'),
+                'exit_reason': 'position_already_closed'
+            }
+        
+        # Track statistics
+        diagnostic_data['statistics'] = {
+            'orders_generated': self._orders_generated,
+            'positions_closed': self._positions_closed
+        }
+        
+        return diagnostic_data

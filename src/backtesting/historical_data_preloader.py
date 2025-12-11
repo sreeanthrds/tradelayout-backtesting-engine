@@ -57,7 +57,9 @@ class HistoricalDataPreloader:
             return True
             
         except Exception as e:
-            log_error(f"❌ Failed to connect to ClickHouse: {e}")
+            log_warning(f"⚠️  Failed to connect to ClickHouse: {e}")
+            log_warning("⚠️  Running in backtest-only mode (pre-loaded data will be used)")
+            self.client = None
             return False
     
     def disconnect(self):

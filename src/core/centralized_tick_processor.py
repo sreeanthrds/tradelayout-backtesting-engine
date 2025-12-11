@@ -44,7 +44,8 @@ class CentralizedTickProcessor:
         cache_manager: Any,
         subscription_manager: Optional[Any] = None,
         thread_safe: bool = True,
-        data_manager: Optional[Any] = None
+        data_manager: Optional[Any] = None,
+        shared_gps: Optional[Any] = None
     ):
         """
         Initialize centralized tick processor.
@@ -73,7 +74,8 @@ class CentralizedTickProcessor:
         self.strategy_manager = StrategySubscriptionManager(
             cache_manager,
             self.indicator_manager,
-            self.option_manager
+            self.option_manager,
+            shared_gps=shared_gps  # Pass shared GPS for backtesting
         )
         
         # State

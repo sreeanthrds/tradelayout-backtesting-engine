@@ -11,6 +11,7 @@ from .base_node import BaseNode
 from src.core.condition_evaluator_v2 import ConditionEvaluator
 from src.core.expression_evaluator import ExpressionEvaluator
 from src.utils.logger import log_debug, log_info, log_warning, log_error, log_critical, is_per_tick_log_enabled
+from src.utils.ltp_filter import filter_ltp_store
 
 # Performance mode flag - can be toggled
 PERFORMANCE_MODE = False
@@ -607,6 +608,74 @@ class EntrySignalNode(BaseNode):
         """
         # For EntrySignalNode, we call the template method execute()
         return self.execute(data)
+    
+    def _get_evaluation_data(self, context: Dict[str, Any], node_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract evaluation data for entry signal execution.
+        
+        Captures condition details and evaluated values for diagnostics display.
+        This allows UI to show exactly what conditions were checked and their values.
+        
+        Args:
+            context: Execution context
+            node_result: Result from _execute_node_logic
+            
+        Returns:
+            Dictionary with condition evaluation data
+        """
+        evaluation_data = {}
+        
+        # Get stored diagnostic data from node state
+        node_state = self._get_node_state(context)
+        diagnostic_data = node_state.get('diagnostic_data', {})
+        condition_preview = node_state.get('condition_preview', '')
+        
+        # Check if we're in re-entry mode
+        in_reentry_mode = self._is_in_reentry_mode(context)
+        
+        # Determine which conditions were used
+        if in_reentry_mode and self.has_reentry_conditions:
+            condition_type = 're_entry_conditions'
+            conditions_preview = self.data.get('reEntryConditionsPreview', '')
+        else:
+            condition_type = 'entry_conditions'
+            conditions_preview = self.data.get('conditionsPreview', '')
+        
+        # Add condition information
+        evaluation_data['condition_type'] = condition_type
+        evaluation_data['conditions_preview'] = conditions_preview
+        evaluation_data['signal_emitted'] = node_result.get('signal_emitted', False)
+        
+        # Add evaluated values if available
+        if diagnostic_data:
+            evaluation_data['evaluated_conditions'] = diagnostic_data
+        
+        # Add signal metadata if triggered
+        if node_result.get('signal_emitted'):
+            evaluation_data['signal_time'] = node_result.get('signal_time')
+            evaluation_data['variables_calculated'] = list(self.node_variables.keys()) if self.node_variables else []
+            
+            # Add full node variables with expression preview and evaluated values
+            if self.node_variables and self.variables_config:
+                node_vars_details = {}
+                for var_config in self.variables_config:
+                    var_name = var_config.get('name')
+                    if var_name in self.node_variables:
+                        node_vars_details[var_name] = {
+                            'expression_preview': var_config.get('expressionPreview', ''),
+                            'value': self.node_variables[var_name]
+                        }
+                evaluation_data['node_variables'] = node_vars_details
+        
+        # Add filtered LTP store (only TI, SI, and symbols used in conditions)
+        # Condition nodes need LTP data to show what prices were evaluated
+        evaluation_data['ltp_store'] = filter_ltp_store(
+            context.get('ltp_store', {}),
+            context,
+            []  # No position symbols yet - just TI/SI and accessed symbols
+        )
+        
+        return evaluation_data
     
     def _is_in_reentry_mode(self, context: Dict[str, Any]) -> bool:
         """

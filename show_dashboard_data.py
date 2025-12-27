@@ -55,6 +55,7 @@ def track_add(self, pos_id, entry_data, tick_time=None):
     # Create position entry
     position_entry = {
         'position_id': pos_id,
+        'strategy_id': entry_data.get('strategy_id', 'N/A'),  # MULTI-STRATEGY: Track which strategy owns this position
         'entry_node_id': entry_data.get('node_id', 'N/A'),
         'entry_time': tick_time.isoformat() if hasattr(tick_time, 'isoformat') else str(tick_time),
         'entry_timestamp': tick_time.strftime('%H:%M:%S') if hasattr(tick_time, 'strftime') else str(tick_time),
@@ -242,6 +243,258 @@ def run_dashboard_backtest(strategy_id: str, backtest_date):
     }
     
     return dict(dashboard_data)
+
+
+def _build_flow_chain(events_history: dict, exec_id: str, max_depth: int = 50) -> list:
+    """Build flow chain from current node back to start/trigger."""
+    chain = [exec_id]
+    current_id = exec_id
+    depth = 0
+    
+    while current_id and current_id in events_history and depth < max_depth:
+        event = events_history[current_id]
+        parent_id = event.get('parent_execution_id')
+        
+        if parent_id and parent_id in events_history:
+            parent_event = events_history[parent_id]
+            node_type = parent_event.get('node_type', '')
+            
+            if any(keyword in node_type for keyword in ['Signal', 'Condition', 'Start', 'Entry', 'Exit']):
+                chain.append(parent_id)
+            
+            current_id = parent_id
+            depth += 1
+        else:
+            break
+    
+    return list(reversed(chain))
+
+def _extract_flow_ids(events_history: dict, node_id: str, timestamp: str) -> list:
+    """Extract execution_ids (flow_ids) for a specific node execution"""
+    if not events_history or not node_id:
+        return []
+    
+    # Try to find matching node execution
+    for exec_id, event in events_history.items():
+        if event.get('node_id') == node_id:
+            event_time = event.get('timestamp', '')
+            if timestamp and event_time:
+                # Extract HH:MM:SS from diagnostic timestamp
+                # Event time format: "2024-10-28 09:18:00+05:30" or similar
+                # Position timestamp format: "09:18:41"
+                diagnostic_time = ''
+                if len(event_time) >= 19:
+                    diagnostic_time = event_time[11:19]  # "09:18:00"
+                elif 'T' in event_time:
+                    # ISO format: "2024-10-01T09:18:41"
+                    diagnostic_time = event_time.split('T')[1][:8]
+                
+                # Compare HH:MM (first 5 chars) for more lenient matching
+                if diagnostic_time[:5] == timestamp[:5]:
+                    return _build_flow_chain(events_history, exec_id)
+    
+    # Fallback: just find by node_id without timestamp
+    for exec_id, event in events_history.items():
+        if event.get('node_id') == node_id:
+            return _build_flow_chain(events_history, exec_id)
+    
+    return []
+
+def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict = None):
+    """
+    MULTI-STRATEGY: Run backtest for multiple strategies simultaneously.
+    
+    Args:
+        strategy_ids: List of strategy UUID strings
+        backtest_date: date object for the backtest
+        scales: Optional dict of strategy_id -> scale multiplier
+        
+    Returns:
+        Dictionary with:
+        - strategies: Dict[strategy_id] -> {positions, summary, diagnostics}
+        - combined_summary: Aggregated summary across all strategies
+    """
+    from typing import List
+    
+    # Reset dashboard_data for this run
+    dashboard_data['positions'] = []
+    dashboard_data['backtest_date'] = backtest_date.strftime('%Y-%m-%d') if hasattr(backtest_date, 'strftime') else str(backtest_date)
+    
+    # Run the backtest with ALL strategies
+    config = BacktestConfig(
+        strategy_ids=strategy_ids,
+        backtest_date=backtest_date if isinstance(backtest_date, date) else date.fromisoformat(str(backtest_date)),
+        debug_mode=None,
+        scales=scales  # Pass scales to engine config
+    )
+    
+    engine = CentralizedBacktestEngine(config)
+    engine.run()
+    
+    # Build per-strategy results
+    results = {
+        'backtest_date': dashboard_data['backtest_date'],
+        'strategies': {},
+        'combined_summary': {}
+    }
+    
+    # Group positions by strategy_id
+    positions_by_strategy = {}
+    positions_without_strategy = []
+    
+    print(f"[DEBUG] Total positions in dashboard_data: {len(dashboard_data['positions'])}")
+    
+    for pos in dashboard_data['positions']:
+        sid = pos.get('strategy_id', 'unknown')
+        if sid == 'unknown' or not sid:
+            positions_without_strategy.append(pos)
+            print(f"[DEBUG] Position without strategy_id: {pos.get('position_id', 'N/A')} - strategy: {pos.get('strategy', 'N/A')}")
+        else:
+            if sid not in positions_by_strategy:
+                positions_by_strategy[sid] = []
+            positions_by_strategy[sid].append(pos)
+    
+    print(f"[DEBUG] Positions without strategy_id: {len(positions_without_strategy)}")
+    print(f"[DEBUG] Positions by strategy: {[(sid, len(positions)) for sid, positions in positions_by_strategy.items()]}")
+    
+    # TEMPORARY: Include positions without strategy_id in the first strategy for debugging
+    if positions_without_strategy and strategy_ids:
+        first_strategy = strategy_ids[0]
+        if first_strategy not in positions_by_strategy:
+            positions_by_strategy[first_strategy] = []
+        positions_by_strategy[first_strategy].extend(positions_without_strategy)
+        print(f"[DEBUG] Added {len(positions_without_strategy)} positions without strategy_id to {first_strategy}")
+    
+    # Extract diagnostics per strategy - use the strategy_ids from the request as keys
+    diagnostics_by_strategy = {}
+    all_events_history = {}  # Collect all events
+    
+    if hasattr(engine, 'centralized_processor'):
+        active_strategies = engine.centralized_processor.strategy_manager.active_strategies
+        print(f"[DEBUG] Found {len(active_strategies)} active strategies")
+        print(f"[DEBUG] Requested strategy_ids: {strategy_ids}")
+        
+        for instance_id, strategy_state in active_strategies.items():
+            print(f"[DEBUG] Processing instance: {instance_id}")
+            
+            # The strategy_id is stored directly in strategy_state
+            sid = strategy_state.get('strategy_id', '')
+            print(f"[DEBUG] Strategy ID from state: '{sid}'")
+            
+            diagnostics = strategy_state.get('diagnostics')
+            if diagnostics:
+                events = diagnostics.get_all_events({
+                    'node_events_history': strategy_state.get('node_events_history', {})
+                })
+                print(f"[DEBUG] Found {len(events)} diagnostic events")
+                
+                # Store by the actual strategy_id from state
+                if sid:
+                    diagnostics_by_strategy[sid] = {
+                        'events_history': events
+                    }
+                
+                # Also collect all events
+                all_events_history.update(events)
+            else:
+                print(f"[DEBUG] No diagnostics found for instance {instance_id}")
+    
+    # If we have strategy_ids in request but no matching diagnostics, use all events for all strategies
+    if all_events_history and not diagnostics_by_strategy:
+        print(f"[DEBUG] Using all events ({len(all_events_history)}) for all strategies")
+        for sid in strategy_ids:
+            diagnostics_by_strategy[sid] = {
+                'events_history': all_events_history
+            }
+    
+    print(f"[DEBUG] Final diagnostics_by_strategy keys: {list(diagnostics_by_strategy.keys())}")
+    
+    # Calculate per-strategy summaries
+    all_positions = []
+    for sid in strategy_ids:
+        positions = positions_by_strategy.get(sid, [])
+        all_positions.extend(positions)
+        
+        closed_positions = [p for p in positions if p['status'] == 'CLOSED']
+        open_positions = [p for p in positions if p['status'] == 'OPEN']
+        
+        total_pnl = sum(p['pnl'] for p in closed_positions if p['pnl'] is not None)
+        winning_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] > 0]
+        losing_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] < 0]
+        breakeven_trades = [p for p in closed_positions if p['pnl'] == 0]
+        
+        avg_win = sum(p['pnl'] for p in winning_trades) / len(winning_trades) if winning_trades else 0
+        avg_loss = sum(p['pnl'] for p in losing_trades) / len(losing_trades) if losing_trades else 0
+        avg_duration = sum(p['duration_minutes'] for p in closed_positions if p['duration_minutes']) / len(closed_positions) if closed_positions else 0
+        
+        # Add flow_ids to each position for UI flow diagrams
+        diagnostics = diagnostics_by_strategy.get(sid, {})
+        events_history = diagnostics.get('events_history', {})
+        
+        print(f"[DEBUG] Strategy {sid}: {len(events_history)} events in diagnostics")
+        print(f"[DEBUG] Available strategy IDs in diagnostics: {list(diagnostics_by_strategy.keys())}")
+        
+        for pos in positions:
+            entry_node = pos.get('entry_node_id')
+            entry_ts = pos.get('entry_timestamp')
+            
+            # Extract entry flow_ids
+            entry_flow_ids = _extract_flow_ids(events_history, entry_node, entry_ts)
+            pos['entry_flow_ids'] = entry_flow_ids
+            
+            # Extract exit flow_ids
+            exit_flow_ids = []
+            if pos.get('status') == 'CLOSED':
+                exit_node = pos.get('exit_node_id')
+                exit_ts = pos.get('exit_timestamp')
+                exit_flow_ids = _extract_flow_ids(events_history, exit_node, exit_ts)
+            pos['exit_flow_ids'] = exit_flow_ids
+            
+            print(f"[DEBUG] Position {pos.get('position_id')}: entry_node={entry_node}, entry_ts={entry_ts}, entry_flows={len(entry_flow_ids)}, exit_flows={len(exit_flow_ids)}")
+        
+        results['strategies'][sid] = {
+            'strategy_id': sid,
+            'positions': positions,
+            'diagnostics': diagnostics,
+            'summary': {
+                'total_positions': len(positions),
+                'closed_positions': len(closed_positions),
+                'open_positions': len(open_positions),
+                'total_pnl': round(total_pnl, 2),
+                'winning_trades': len(winning_trades),
+                'losing_trades': len(losing_trades),
+                'breakeven_trades': len(breakeven_trades),
+                'win_rate': round(len(winning_trades) / len(closed_positions) * 100, 2) if closed_positions else 0,
+                'avg_win': round(avg_win, 2),
+                'avg_loss': round(avg_loss, 2),
+                'avg_duration_minutes': round(avg_duration, 2),
+                'largest_win': round(max((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
+                'largest_loss': round(min((p['pnl'] for p in closed_positions if p['pnl']), default=0), 2),
+                're_entries': len([p for p in positions if p['re_entry_num'] > 0])
+            }
+        }
+    
+    # Calculate combined summary across all strategies
+    all_closed = [p for p in all_positions if p['status'] == 'CLOSED']
+    all_open = [p for p in all_positions if p['status'] == 'OPEN']
+    
+    combined_pnl = sum(p['pnl'] for p in all_closed if p['pnl'] is not None)
+    combined_winners = [p for p in all_closed if p['pnl'] and p['pnl'] > 0]
+    combined_losers = [p for p in all_closed if p['pnl'] and p['pnl'] < 0]
+    
+    results['combined_summary'] = {
+        'strategy_count': len(strategy_ids),
+        'total_positions': len(all_positions),
+        'closed_positions': len(all_closed),
+        'open_positions': len(all_open),
+        'combined_pnl': round(combined_pnl, 2),
+        'winning_trades': len(combined_winners),
+        'losing_trades': len(combined_losers),
+        'win_rate': round(len(combined_winners) / len(all_closed) * 100, 2) if all_closed else 0
+    }
+    
+    return results
+
 
 def format_value_for_display(value, expr_str):
     """

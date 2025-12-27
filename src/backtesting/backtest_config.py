@@ -7,7 +7,7 @@ Configuration dataclass for backtesting parameters.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 
 @dataclass
@@ -25,6 +25,7 @@ class BacktestConfig:
         debug_snapshot_seconds: For snapshot mode - stop after N seconds
         debug_breakpoint_time: For breakpoint mode - pause at specific time (HH:MM:SS)
         strategies_agg: Optional pre-built metadata (for optimization)
+        scales: Optional dict of strategy_id -> scale multiplier for quantity
     """
     
     # Required
@@ -38,6 +39,9 @@ class BacktestConfig:
     
     # Optional - Performance optimization
     strategies_agg: Optional[dict] = None  # Pre-built metadata (optional optimization)
+    
+    # Optional - Scale multipliers per strategy
+    scales: Optional[Dict[str, float]] = None  # strategy_id -> scale multiplier
     
     def __post_init__(self):
         """Validate configuration after initialization."""

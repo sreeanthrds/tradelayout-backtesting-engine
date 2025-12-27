@@ -417,6 +417,9 @@ class StrategySubscriptionManager:
         node_events_history = {}
         node_current_state = {}
         
+        # Get scale from subscription (default to 1)
+        scale = subscription.get('scale', 1)
+        
         # Create strategy state
         strategy_state = {
             'instance_id': instance_id,
@@ -425,6 +428,7 @@ class StrategySubscriptionManager:
             'account_id': subscription['account_id'],
             'config': strategy_config,
             'metadata': strategy_metadata,  # ✅ Store optimized metadata for O(1) access
+            'scale': scale,  # ✅ Scale multiplier for quantity
             'node_states': {},
             'node_instances': {},
             'positions': {},
@@ -432,7 +436,8 @@ class StrategySubscriptionManager:
                 'context_manager': context_manager,  # ✅ Add context_manager with GPS
                 'diagnostics': diagnostics,  # ✅ Add diagnostics system
                 'node_events_history': node_events_history,  # ✅ Event history storage
-                'node_current_state': node_current_state  # ✅ Current state storage
+                'node_current_state': node_current_state,  # ✅ Current state storage
+                'scale': scale  # ✅ Scale in context for entry node access
             },
             'context_manager': context_manager,  # ✅ Also at top level for easy access
             'diagnostics': diagnostics,  # ✅ Also at top level for retrieval after backtest

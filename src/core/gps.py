@@ -105,6 +105,7 @@ class GlobalPositionStore:
                 "exchange": entry_data.get("exchange", "NSE"),  # Exchange for exit orders
                 "side": entry_data.get("side", "buy"),  # Position side (buy/sell)
                 "strategy": entry_data.get("strategy", ""),
+                "strategy_id": entry_data.get("strategy_id", ""),  # MULTI-STRATEGY: Track which strategy owns this position
                 "node_id": entry_data.get("node_id", ""),
                 "reEntryNum": entry_data.get("reEntryNum", 0),
                 "position_num": position_num,  # Sequential position number (starts at 1)
@@ -182,6 +183,7 @@ class GlobalPositionStore:
         position["node_variables"] = entry_data.get("node_variables", {})  # Node variables snapshot at entry
         position["side"] = entry_data.get("side", position.get("side", "buy"))  # Position side
         position["strategy"] = entry_data.get("strategy", position.get("strategy", ""))
+        position["strategy_id"] = entry_data.get("strategy_id", position.get("strategy_id", ""))  # MULTI-STRATEGY
         position["node_id"] = entry_data.get("node_id", position.get("node_id", ""))
         position["reEntryNum"] = entry_data.get("reEntryNum", 0)
         position["position_num"] = position_num  # Update position_num

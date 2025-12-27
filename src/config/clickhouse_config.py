@@ -15,7 +15,7 @@ class ClickHouseConfig:
     USER = os.getenv('CLICKHOUSE_USER', 'default')
     PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', '')
     SECURE = os.getenv('CLICKHOUSE_SECURE', 'false').lower() == 'true'
-    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'tradelayout')
+    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'default')
     
     # Table settings
     TABLE_NAME = os.getenv('CLICKHOUSE_TABLE', 'nse_ticks_stocks')

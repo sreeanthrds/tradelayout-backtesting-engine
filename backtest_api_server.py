@@ -8,7 +8,7 @@ import sys
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta
@@ -19,6 +19,7 @@ import gzip
 import zipfile
 from io import BytesIO
 from sse_starlette.sse import EventSourceResponse
+from supabase import create_client, Client
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,7 +33,13 @@ class DateTimeEncoder(json.JSONEncoder):
 os.environ['SUPABASE_URL'] = 'https://oonepfqgzpdssfzvokgk.supabase.co'
 os.environ['SUPABASE_SERVICE_ROLE_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vbmVwZnFnenBkc3NmenZva2drIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDE5OTkxNCwiZXhwIjoyMDY1Nzc1OTE0fQ.qmUNhAh3oVhPW2lcAkw7E2Z19MenEIoWCBXCR9Hq6Kg'
 
-from show_dashboard_data import run_dashboard_backtest, dashboard_data, format_value_for_display, substitute_condition_values
+# Initialize Supabase client for queue operations
+supabase: Client = create_client(
+    os.environ['SUPABASE_URL'],
+    os.environ['SUPABASE_SERVICE_ROLE_KEY']
+)
+
+from show_dashboard_data import run_dashboard_backtest, run_multi_strategy_backtest, dashboard_data, format_value_for_display, substitute_condition_values
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -447,6 +454,200 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
+
+# ============================================================================
+# MULTI-STRATEGY BACKTEST ENDPOINT
+# ============================================================================
+
+class MultiStrategyRequest(BaseModel):
+    """Request model for multi-strategy backtest"""
+    strategy_ids: List[str] = Field(..., description="List of strategy UUIDs to backtest")
+    backtest_date: str = Field(..., description="Single date for backtesting (YYYY-MM-DD)")
+    scales: Optional[Dict[str, float]] = Field(default=None, description="Optional scale multipliers per strategy_id")
+
+class MultiStrategyQueueRequest(BaseModel):
+    """Request model for multi-strategy backtest from queue"""
+    backtest_date: str = Field(..., description="Single date for backtesting (YYYY-MM-DD)")
+
+@app.get("/api/v1/backtest/diagnostics/{strategy_id}/{date}")
+async def get_backtest_diagnostics(strategy_id: str, date: str):
+    """
+    Get diagnostics data for a specific backtest.
+    Returns the diagnostics_export.json data from saved files.
+    """
+    try:
+        dir_path = get_day_dir(strategy_id, date)
+        diag_file = f"{dir_path}/diagnostics_export.json.gz"
+        
+        if not os.path.exists(diag_file):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Diagnostics not found for {strategy_id} on {date}"
+            )
+        
+        with gzip.open(diag_file, 'rt', encoding='utf-8') as f:
+            diagnostics_data = json.load(f)
+        
+        return diagnostics_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error loading diagnostics: {str(e)}"
+        )
+
+
+@app.post("/api/v1/backtest/multi-strategy")
+async def multi_strategy_backtest(request: MultiStrategyRequest):
+    """
+    Run backtest for multiple strategies simultaneously on a single date.
+    
+    Request Body:
+    {
+        "strategy_ids": ["uuid1", "uuid2", "uuid3"],
+        "backtest_date": "2024-10-01"
+    }
+    
+    Response:
+    {
+        "backtest_date": "2024-10-01",
+        "strategies": {
+            "uuid1": { "positions": [...], "summary": {...}, "diagnostics": {...} },
+            "uuid2": { "positions": [...], "summary": {...}, "diagnostics": {...} }
+        },
+        "combined_summary": {
+            "strategy_count": 2,
+            "combined_pnl": 1500.00,
+            "total_positions": 10,
+            ...
+        }
+    }
+    """
+    try:
+        # Validate date
+        try:
+            backtest_dt = datetime.strptime(request.backtest_date, '%Y-%m-%d').date()
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid backtest_date format. Use YYYY-MM-DD"
+            )
+        
+        # Validate strategy_ids
+        if not request.strategy_ids or len(request.strategy_ids) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one strategy_id is required"
+            )
+        
+        print(f"[API] Running multi-strategy backtest for {len(request.strategy_ids)} strategies on {request.backtest_date}")
+        
+        # Read scales from queue table if not provided in request
+        scales = request.scales
+        if not scales:
+            # Try to read scales from multi_strategy_queue table
+            queue_response = supabase.table('multi_strategy_queue').select('strategy_id, scale').in_('strategy_id', request.strategy_ids).execute()
+            if queue_response.data:
+                scales = {row['strategy_id']: row.get('scale', 1) for row in queue_response.data}
+                print(f"[API] Scales from queue table: {scales}")
+            else:
+                scales = {}
+        else:
+            print(f"[API] Scales from request: {scales}")
+        
+        # Run multi-strategy backtest
+        results = run_multi_strategy_backtest(
+            strategy_ids=request.strategy_ids,
+            backtest_date=backtest_dt,
+            scales=scales
+        )
+        
+        print(f"[API] Multi-strategy backtest completed: {results.get('combined_summary', {})}")
+        
+        return results
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[API] Multi-strategy backtest error: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Multi-strategy backtest failed: {str(e)}"
+        )
+
+
+@app.post("/api/v1/backtest/multi-strategy-queue")
+async def multi_strategy_backtest_from_queue(request: MultiStrategyQueueRequest):
+    """
+    Run backtest for all active strategies from multi_strategy_queue table.
+    Reads strategies where is_active = 1.
+    
+    Request Body:
+    {
+        "backtest_date": "2024-10-01"
+    }
+    """
+    try:
+        # Validate date
+        try:
+            backtest_dt = datetime.strptime(request.backtest_date, '%Y-%m-%d').date()
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid backtest_date format. Use YYYY-MM-DD"
+            )
+        
+        # Read active strategies from queue table
+        print(f"[API] Reading active strategies from multi_strategy_queue...")
+        response = supabase.table('multi_strategy_queue').select('*').eq('is_active', 1).execute()
+        
+        if not response.data or len(response.data) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No active strategies found in queue. Mark strategies as active first."
+            )
+        
+        # Extract strategy_ids and scales
+        strategy_ids = [row['strategy_id'] for row in response.data]
+        scales = {row['strategy_id']: row.get('scale', 1) for row in response.data}
+        print(f"[API] Found {len(strategy_ids)} active strategies: {strategy_ids}")
+        print(f"[API] Scales from queue: {scales}")
+        
+        # Update status to 'running' for all active strategies
+        supabase.table('multi_strategy_queue').update({'status': 'running'}).eq('is_active', 1).execute()
+        
+        # Run multi-strategy backtest with scales
+        results = run_multi_strategy_backtest(
+            strategy_ids=strategy_ids,
+            backtest_date=backtest_dt,
+            scales=scales
+        )
+        
+        # Update status to 'completed' for all processed strategies
+        supabase.table('multi_strategy_queue').update({'status': 'completed'}).eq('is_active', 1).execute()
+        
+        print(f"[API] Multi-strategy queue backtest completed: {results.get('combined_summary', {})}")
+        
+        return results
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[API] Multi-strategy queue backtest error: {e}")
+        print(traceback.format_exc())
+        # Reset status on error
+        supabase.table('multi_strategy_queue').update({'status': 'pending'}).eq('is_active', 1).execute()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Multi-strategy queue backtest failed: {str(e)}"
+        )
+
+
 @app.post("/api/v1/backtest", response_model=BacktestResponse)
 async def run_backtest(request: BacktestRequest):
     """
@@ -525,6 +726,8 @@ async def run_backtest(request: BacktestRequest):
             position_numbers = {}
             next_pos_num = 1
             
+            diagnostics = daily_data.get('diagnostics', {})
+            
             for pos in daily_data['positions']:
                 pos_id = pos['position_id']
                 if pos_id not in position_numbers:
@@ -538,16 +741,32 @@ async def run_backtest(request: BacktestRequest):
                 if request.include_diagnostics:
                     pos['diagnostic_text'] = generate_diagnostic_text(pos, pos_num, txn_num)
                 
+                # Add flow_ids for UI flow diagrams
+                pos['entry_flow_ids'] = extract_flow_ids_from_diagnostics(
+                    diagnostics,
+                    pos.get('entry_node_id'),
+                    pos.get('entry_timestamp')
+                )
+                exit_flow_ids = []
+                if pos.get('status') == 'CLOSED':
+                    exit_flow_ids = extract_flow_ids_from_diagnostics(
+                        diagnostics,
+                        pos.get('exit_node_id'),
+                        pos.get('exit_timestamp')
+                    )
+                pos['exit_flow_ids'] = exit_flow_ids
+                
                 # Add position/transaction numbers for UI reference
                 pos['position_number'] = pos_num
                 pos['transaction_number'] = txn_num
             
-            # Add daily result
+            # Add daily result with diagnostics
             results.append({
                 'date': test_date.strftime('%Y-%m-%d'),
                 'strategy_id': daily_data['strategy_id'],
                 'positions': daily_data['positions'],
-                'summary': daily_data['summary']
+                'summary': daily_data['summary'],
+                'diagnostics': diagnostics  # Include diagnostics for flow diagrams
             })
             
             # Update overall summary

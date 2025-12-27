@@ -81,9 +81,16 @@ class CentralizedBacktestEngine(BacktestEngine):
             strategy = self.strategy_manager.load_strategy(strategy_id=strategy_id)
             strategies.append(strategy)
         
-        # For now, backtest processes first strategy (future: support multiple)
+        # MULTI-STRATEGY: Process ALL strategies
+        self.strategies = strategies  # Store all strategies for later reference
+        
+        # Log all loaded strategies
+        for idx, strat in enumerate(strategies, 1):
+            logger.info(f"Loaded strategy {idx}/{len(strategies)}: {strat.strategy_name} (user: {strat.user_id})")
+        
+        # Use first strategy for backward-compatible single-strategy initialization
+        # (DataManager and context adapter still use single strategy interface)
         strategy = strategies[0]
-        logger.info(f"Loaded strategy: {strategy.strategy_name} (user: {strategy.user_id})")
         
         # Step 2: Build metadata (strategies_agg) FROM loaded strategies
         # IMPORTANT: This metadata contains symbols, timeframes, indicators, options
@@ -111,15 +118,22 @@ class CentralizedBacktestEngine(BacktestEngine):
         # Step 6: Initialize centralized components
         self._initialize_centralized_components()
         
-        # Step 7: Subscribe strategy to cache
-        self._subscribe_strategy_to_cache(strategy)
+        # Step 7: Subscribe ALL strategies to cache (MULTI-STRATEGY)
+        for strat in strategies:
+            self._subscribe_strategy_to_cache(strat)
         
-        # Step 8: Load ticks
+        # Step 8: Load ticks for ALL symbols across ALL strategies (MULTI-STRATEGY)
+        all_symbols = set()
+        for strat in strategies:
+            all_symbols.update(strat.get_symbols())
+        
+        logger.info(f"📊 Loading ticks for {len(all_symbols)} unique symbols across {len(strategies)} strategies")
+        
         ticks = self.data_manager.load_ticks(
             date=self.config.backtest_date,
-            symbols=strategy.get_symbols()
+            symbols=list(all_symbols)
         )
-        logger.info(f"✅ Loaded {len(ticks):,} ticks")
+        logger.info(f"✅ Loaded {len(ticks):,} ticks for symbols: {', '.join(sorted(all_symbols))}")
         
         # Step 9: Process ticks → Update cache → Invoke strategies
         # DEBUG START: Snapshot mode support
@@ -337,6 +351,12 @@ class CentralizedBacktestEngine(BacktestEngine):
         # Create strategy instance ID (user_id comes from strategy object)
         instance_id = f"{strategy.user_id}_{strategy.strategy_id}_{int(datetime.now().timestamp())}"
         
+        # Get scale for this strategy from config (default to 1)
+        scale = 1
+        if self.config.scales and strategy.strategy_id in self.config.scales:
+            scale = self.config.scales[strategy.strategy_id]
+            print(f"   📊 Scale for strategy {strategy.strategy_id}: {scale}")
+        
         # Create subscription data
         subscription_data = {
             'user_id': strategy.user_id,
@@ -344,6 +364,7 @@ class CentralizedBacktestEngine(BacktestEngine):
             'account_id': 'backtest_account',
             'instance_id': instance_id,
             'config': strategy.config,
+            'scale': scale,  # Include scale in subscription data
             'status': 'active',
             'subscribed_at': datetime.now().isoformat()
         }

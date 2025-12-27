@@ -413,8 +413,19 @@ class EntryNode(BaseNode):
 
         # Extract order parameters from configuration
         quantity = position_config.get('quantity', 1)  # Number of lots
-        lot_size = position_config.get('lotSize', 1)   # Lot size multiplier
-        actual_qty = quantity * lot_size                # Actual quantity to trade
+        lot_size = position_config.get('lotSize', 1)   # Lot size (kept for backward compatibility)
+        
+        # Get multiplier from positionDetails (fallback to lot_size for backward compatibility)
+        multiplier = position_config.get('multiplier') or lot_size
+        
+        # Get scale from context (from queue table, default 1)
+        scale = context.get('scale', 1) if context.get('scale') else 1
+        
+        # Actual quantity = quantity × multiplier × scale
+        actual_qty = int(quantity * multiplier * scale)
+        
+        if scale != 1 or multiplier != lot_size:
+            log_info(f"📊 Entry Node {self.id}: qty={quantity} × multiplier={multiplier} × scale={scale} = {actual_qty}")
         position_type = position_config.get('positionType', 'sell')
         order_type = position_config.get('orderType', 'market')
         product_type = position_config.get('productType', 'intraday')
@@ -814,6 +825,7 @@ class EntryNode(BaseNode):
                 'nifty_spot': underlying_price_on_entry,  # Alias for compatibility
                 'side': position_config.get('positionType', 'buy'),
                 'strategy': strategy_name,
+                'strategy_id': context.get('strategy_id', ''),  # MULTI-STRATEGY: Track which strategy owns this position
                 'order_id': order['order_id'],
                 'broker_order_id': order.get('broker_order_id'),  # Add broker order ID
                 'order_type': order.get('order_type', 'MARKET'),

@@ -420,11 +420,19 @@ class StrategySubscriptionManager:
         # Get scale from subscription (default to 1)
         scale = subscription.get('scale', 1)
         
+        # Get broker_connection_id for live trading (None for backtesting)
+        broker_connection_id = subscription.get('broker_connection_id')
+        
+        # Get actual_strategy_id if this is a queue-based execution
+        actual_strategy_id = subscription.get('actual_strategy_id')
+        
         # Create strategy state
         strategy_state = {
             'instance_id': instance_id,
             'user_id': subscription['user_id'],
             'strategy_id': subscription['strategy_id'],
+            'actual_strategy_id': actual_strategy_id,  # ✅ Original strategy_id when running from queue
+            'broker_connection_id': broker_connection_id,  # ✅ For live trading order routing
             'account_id': subscription['account_id'],
             'config': strategy_config,
             'metadata': strategy_metadata,  # ✅ Store optimized metadata for O(1) access
@@ -437,7 +445,9 @@ class StrategySubscriptionManager:
                 'diagnostics': diagnostics,  # ✅ Add diagnostics system
                 'node_events_history': node_events_history,  # ✅ Event history storage
                 'node_current_state': node_current_state,  # ✅ Current state storage
-                'scale': scale  # ✅ Scale in context for entry node access
+                'scale': scale,  # ✅ Scale in context for entry node access
+                'broker_connection_id': broker_connection_id,  # ✅ For live trading order routing
+                'actual_strategy_id': actual_strategy_id  # ✅ Original strategy_id
             },
             'context_manager': context_manager,  # ✅ Also at top level for easy access
             'diagnostics': diagnostics,  # ✅ Also at top level for retrieval after backtest

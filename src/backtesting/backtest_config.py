@@ -43,6 +43,11 @@ class BacktestConfig:
     # Optional - Scale multipliers per strategy
     scales: Optional[Dict[str, float]] = None  # strategy_id -> scale multiplier
     
+    # Optional - Queue entries mapping (for multi-broker support)
+    # Maps queue_id -> {actual_strategy_id, broker_connection_id, user_id, scale}
+    # When provided, strategy_ids contains queue_ids, and actual_strategy_id is used for loading
+    queue_entries: Optional[Dict[str, Dict]] = None
+    
     def __post_init__(self):
         """Validate configuration after initialization."""
         if not self.strategy_ids:

@@ -114,6 +114,11 @@ class StrategyMetadata:
     strategy_name: str
     created_at: datetime = field(default_factory=datetime.now)
     
+    # Queue-based execution (for multi-broker support)
+    # When running from queue, strategy_id is queue_id and actual_strategy_id is original
+    actual_strategy_id: Optional[str] = None  # Original strategy_id when running from queue
+    broker_connection_id: Optional[str] = None  # Broker connection for live trading
+    
     # Instrument configurations (Symbol-Timeframe-Indicators binding)
     # This is the CORE - symbol and timeframe are ALWAYS together
     # Key: "SYMBOL:TIMEFRAME" (e.g., "NIFTY:1m"), Value: InstrumentConfig

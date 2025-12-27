@@ -74,11 +74,35 @@ class CentralizedBacktestEngine(BacktestEngine):
         print("=" * 80)
         
         # Step 1: Load strategies (always as list, even for single strategy)
-        # User ID is fetched from strategy record - no need to pass separately
+        # If queue_entries provided, use actual_strategy_id for loading, then override strategy_id with queue_id
         strategies = []
         for strategy_id in self.config.strategy_ids:
-            # Fetch strategy record which contains user_id
-            strategy = self.strategy_manager.load_strategy(strategy_id=strategy_id)
+            # Check if this is a queue_id with queue_entries mapping
+            queue_entry = None
+            actual_strategy_id = strategy_id
+            broker_connection_id = None
+            
+            if self.config.queue_entries and strategy_id in self.config.queue_entries:
+                queue_entry = self.config.queue_entries[strategy_id]
+                actual_strategy_id = queue_entry.get('actual_strategy_id', strategy_id)
+                broker_connection_id = queue_entry.get('broker_connection_id')
+                logger.info(f"📋 Queue entry: queue_id={strategy_id}, actual_strategy_id={actual_strategy_id}, broker={broker_connection_id}")
+            
+            # Fetch strategy record using actual_strategy_id
+            strategy = self.strategy_manager.load_strategy(
+                strategy_id=actual_strategy_id,
+                broker_connection_id=broker_connection_id
+            )
+            
+            # Override strategy_id with queue_id (so all downstream uses queue_id as unique identifier)
+            if queue_entry:
+                strategy.strategy_id = strategy_id  # queue_id becomes the strategy_id
+                strategy.actual_strategy_id = actual_strategy_id  # preserve original
+                strategy.broker_connection_id = broker_connection_id
+                # Also inject user_id if provided in queue_entry
+                if queue_entry.get('user_id'):
+                    strategy.user_id = queue_entry['user_id']
+            
             strategies.append(strategy)
         
         # MULTI-STRATEGY: Process ALL strategies
@@ -361,6 +385,8 @@ class CentralizedBacktestEngine(BacktestEngine):
         subscription_data = {
             'user_id': strategy.user_id,
             'strategy_id': strategy.strategy_id,
+            'actual_strategy_id': getattr(strategy, 'actual_strategy_id', None),  # Original strategy_id if from queue
+            'broker_connection_id': getattr(strategy, 'broker_connection_id', None),  # For live trading
             'account_id': 'backtest_account',
             'instance_id': instance_id,
             'config': strategy.config,

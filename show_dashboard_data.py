@@ -300,14 +300,16 @@ def _extract_flow_ids(events_history: dict, node_id: str, timestamp: str) -> lis
     
     return []
 
-def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict = None):
+def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict = None, queue_entries: dict = None):
     """
     MULTI-STRATEGY: Run backtest for multiple strategies simultaneously.
     
     Args:
-        strategy_ids: List of strategy UUID strings
+        strategy_ids: List of strategy UUID strings (or queue_ids if queue_entries provided)
         backtest_date: date object for the backtest
         scales: Optional dict of strategy_id -> scale multiplier
+        queue_entries: Optional dict of queue_id -> {actual_strategy_id, broker_connection_id, user_id, scale}
+                      When provided, strategy_ids should contain queue_ids
         
     Returns:
         Dictionary with:
@@ -325,7 +327,8 @@ def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict 
         strategy_ids=strategy_ids,
         backtest_date=backtest_date if isinstance(backtest_date, date) else date.fromisoformat(str(backtest_date)),
         debug_mode=None,
-        scales=scales  # Pass scales to engine config
+        scales=scales,  # Pass scales to engine config
+        queue_entries=queue_entries  # Pass queue_entries for multi-broker support
     )
     
     engine = CentralizedBacktestEngine(config)

@@ -611,20 +611,42 @@ async def multi_strategy_backtest_from_queue(request: MultiStrategyQueueRequest)
                 detail="No active strategies found in queue. Mark strategies as active first."
             )
         
-        # Extract strategy_ids and scales
-        strategy_ids = [row['strategy_id'] for row in response.data]
-        scales = {row['strategy_id']: row.get('scale', 1) for row in response.data}
-        print(f"[API] Found {len(strategy_ids)} active strategies: {strategy_ids}")
-        print(f"[API] Scales from queue: {scales}")
+        # Extract queue entries - use queue table 'id' as strategy_id (unique per broker combination)
+        # This allows same strategy to run with different brokers independently
+        queue_ids = []  # These become strategy_ids downstream
+        scales = {}
+        queue_entries = {}  # Maps queue_id -> {actual_strategy_id, broker_connection_id, user_id, scale}
+        
+        for row in response.data:
+            queue_id = row['id']  # Use queue table id as unique identifier
+            actual_strategy_id = row['strategy_id']  # Original strategy for loading config
+            broker_connection_id = row.get('broker_connection_id')  # For live trading
+            user_id = row.get('user_id')  # User who owns this queue entry
+            scale = row.get('scale', 1)
+            
+            queue_ids.append(queue_id)
+            scales[queue_id] = scale
+            queue_entries[queue_id] = {
+                'actual_strategy_id': actual_strategy_id,
+                'broker_connection_id': broker_connection_id,
+                'user_id': user_id,
+                'scale': scale
+            }
+        
+        print(f"[API] Found {len(queue_ids)} active queue entries")
+        print(f"[API] Queue entries: {[(qid, qe['actual_strategy_id'], qe.get('broker_connection_id')) for qid, qe in queue_entries.items()]}")
+        print(f"[API] Scales: {scales}")
         
         # Update status to 'running' for all active strategies
         supabase.table('multi_strategy_queue').update({'status': 'running'}).eq('is_active', 1).execute()
         
-        # Run multi-strategy backtest with scales
+        # Run multi-strategy backtest with queue_entries
+        # queue_ids are used as strategy_ids, queue_entries provides mapping to actual strategy configs
         results = run_multi_strategy_backtest(
-            strategy_ids=strategy_ids,
+            strategy_ids=queue_ids,  # queue_ids become strategy_ids
             backtest_date=backtest_dt,
-            scales=scales
+            scales=scales,
+            queue_entries=queue_entries  # Mapping for actual strategy loading
         )
         
         # Update status to 'completed' for all processed strategies

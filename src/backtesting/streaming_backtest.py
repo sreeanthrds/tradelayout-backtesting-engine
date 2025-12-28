@@ -256,6 +256,9 @@ async def run_streaming_backtest(
     last_event_counts = {}  # {strategy_id: last_event_count} to detect new events
     emitted_events = set()  # Track emitted event execution_ids
     
+    # Store events_history per strategy (persists after strategies terminate)
+    stored_events_history = {}  # {actual_strat_id: events_history}
+    
     # Track trades for trades_daily streaming
     trades_list = {}  # {strategy_id: [trades]} built incrementally
     
@@ -609,6 +612,10 @@ async def run_streaming_backtest(
             # Get node_events_history from strategy context
             events_history = strategy_state.get('node_events_history', {})
             
+            # Store a copy of events_history (so it persists after strategy terminates)
+            if events_history:
+                stored_events_history[actual_strat_id] = dict(events_history)
+            
             # Check for new events
             for exec_id, event_data in events_history.items():
                 if exec_id not in emitted_events:
@@ -751,12 +758,9 @@ async def run_streaming_backtest(
     for strat_id, meta in strategy_metadata.items():
         actual_strat_id = meta.get('actual_strategy_id') or strat_id
         
-        # Get final diagnostics from strategy state (may need to look up by strat_id)
-        events_history = {}
-        for instance_id, strategy_state in engine.centralized_processor.strategy_manager.active_strategies.items():
-            if strategy_state.get('strategy_id') == strat_id:
-                events_history = strategy_state.get('node_events_history', {})
-                break
+        # Get final diagnostics from stored_events_history (persisted during tick loop)
+        # Use actual_strat_id as key since that's how it was stored
+        events_history = stored_events_history.get(actual_strat_id, {})
         
         # Get final trades
         strat_trades = list(trades_list.get(actual_strat_id, {}).values())

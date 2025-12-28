@@ -257,7 +257,8 @@ async def run_streaming_backtest(
     emitted_events = set()  # Track emitted event execution_ids
     
     # Store events_history per strategy (persists after strategies terminate)
-    stored_events_history = {}  # {actual_strat_id: events_history}
+    # Use queue_id (strat_id) as key - unique per broker account
+    stored_events_history = {}  # {queue_id: events_history}
     
     # Track trades for trades_daily streaming
     trades_list = {}  # {strategy_id: [trades]} built incrementally
@@ -518,11 +519,11 @@ async def run_streaming_backtest(
                         closed_count += 1
                         realized_pnl += pos.get('realized_pnl') or 0
                 
-                # Use actual_strategy_id as key so UI can match (UI uses strategy IDs, not queue IDs)
+                # Use queue_id (strat_id) as key - unique per broker account
                 actual_strat_id = meta.get('actual_strategy_id') or strat_id
                 
-                # Get trades for this strategy
-                strat_trades = list(trades_list.get(actual_strat_id, {}).values())
+                # Get trades for this strategy - use queue_id
+                strat_trades = list(trades_list.get(strat_id, {}).values())
                 
                 # Calculate realized P&L from trades (more accurate than GPS positions)
                 trades_realized_pnl = sum(
@@ -546,9 +547,10 @@ async def run_streaming_backtest(
                 winning_trades = sum(1 for t in strat_trades if float(t.get('pnl', 0) or 0) > 0 and t.get('status') == 'CLOSED')
                 losing_trades = sum(1 for t in strat_trades if float(t.get('pnl', 0) or 0) <= 0 and t.get('status') == 'CLOSED')
                 
-                strategy_data[actual_strat_id] = {
+                # Use queue_id (strat_id) as key - unique per broker account
+                strategy_data[strat_id] = {
                     "name": meta.get('name'),
-                    "queue_id": strat_id,
+                    "actual_strategy_id": actual_strat_id,
                     "positions": gps_positions,
                     "ltp_store": filtered_ltp,
                     "pnl_summary": {
@@ -613,8 +615,9 @@ async def run_streaming_backtest(
             events_history = strategy_state.get('node_events_history', {})
             
             # Store a copy of events_history (so it persists after strategy terminates)
+            # Use queue_id (strat_id) as key - unique per broker account
             if events_history:
-                stored_events_history[actual_strat_id] = dict(events_history)
+                stored_events_history[strat_id] = dict(events_history)
             
             # Check for new events
             for exec_id, event_data in events_history.items():
@@ -646,8 +649,8 @@ async def run_streaming_backtest(
             if context_mgr and hasattr(context_mgr, 'gps'):
                 gps = context_mgr.gps
                 
-                if actual_strat_id not in trades_list:
-                    trades_list[actual_strat_id] = {}
+                if strat_id not in trades_list:
+                    trades_list[strat_id] = {}
                 
                 # Convert GPS positions to trades format
                 # GPS stores transactions within each position - iterate over ALL transactions
@@ -664,7 +667,7 @@ async def run_streaming_backtest(
                         txn_status = txn.get('status', 'open').upper()
                         
                         # Check if this trade already exists and is CLOSED - preserve closed trades
-                        existing_trade = trades_list[actual_strat_id].get(trade_key)
+                        existing_trade = trades_list[strat_id].get(trade_key)
                         if existing_trade and existing_trade.get('status') == 'CLOSED':
                             continue
                         
@@ -732,7 +735,7 @@ async def run_streaming_backtest(
                             "exit_flow_ids": exit_flow_ids,
                         }
                         
-                        trades_list[actual_strat_id][trade_key] = trade
+                        trades_list[strat_id][trade_key] = trade
         
         # Check termination
         active_strategies = engine.centralized_processor.strategy_manager.active_strategies
@@ -759,11 +762,11 @@ async def run_streaming_backtest(
         actual_strat_id = meta.get('actual_strategy_id') or strat_id
         
         # Get final diagnostics from stored_events_history (persisted during tick loop)
-        # Use actual_strat_id as key since that's how it was stored
-        events_history = stored_events_history.get(actual_strat_id, {})
+        # Use queue_id (strat_id) as key since that's how it was stored
+        events_history = stored_events_history.get(strat_id, {})
         
-        # Get final trades
-        strat_trades = list(trades_list.get(actual_strat_id, {}).values())
+        # Get final trades - use queue_id (strat_id) as key
+        strat_trades = list(trades_list.get(strat_id, {}).values())
         
         # Calculate final statistics
         winning_trades = sum(1 for t in strat_trades if float(t.get('pnl', 0)) > 0 and t.get('status') == 'CLOSED')
@@ -772,9 +775,10 @@ async def run_streaming_backtest(
         strat_pnl = sum(float(t.get('pnl', 0)) for t in strat_trades if t.get('status') == 'CLOSED')
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
-        print(f"[Stream Complete] Strategy {actual_strat_id}: {len(strat_trades)} trades, {len(events_history)} events")
+        print(f"[Stream Complete] Strategy queue_id={strat_id}, actual={actual_strat_id}: {len(strat_trades)} trades, {len(events_history)} events")
         
-        final_strategy_data[actual_strat_id] = {
+        # Use queue_id (strat_id) as key - unique per broker account
+        final_strategy_data[strat_id] = {
             "trades_daily": {
                 "date": backtest_date.isoformat(),
                 "summary": {

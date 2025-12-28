@@ -17,6 +17,70 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def build_flow_chain(events_history: dict, exec_id: str, max_depth: int = 10) -> list:
+    """
+    Build execution chain from an execution ID back to root (Start node).
+    Returns list of execution IDs in CHRONOLOGICAL order (oldest to newest).
+    """
+    chain = [exec_id]  # Include the current node
+    current_id = exec_id
+    depth = 0
+    
+    while current_id and current_id in events_history and depth < max_depth:
+        event = events_history[current_id]
+        parent_id = event.get('parent_execution_id')
+        
+        if parent_id and parent_id in events_history:
+            parent_event = events_history[parent_id]
+            node_type = parent_event.get('node_type', '')
+            
+            # Add ALL parent nodes (signals, conditions, start)
+            if any(keyword in node_type for keyword in ['Signal', 'Condition', 'Start', 'Entry', 'Exit']):
+                chain.append(parent_id)
+            
+            current_id = parent_id
+            depth += 1
+        else:
+            break
+    
+    # Return in chronological order (oldest first)
+    return list(reversed(chain))
+
+
+def extract_flow_ids_from_events(events_history: dict, node_id: str, timestamp: str) -> list:
+    """
+    Extract execution_ids (flow_ids) for a specific node execution.
+    Matches by node_id and timestamp to find the correct execution.
+    """
+    if not events_history or not node_id:
+        return []
+    
+    for exec_id, event in events_history.items():
+        if event.get('node_id') == node_id:
+            # Check if timestamp matches (compare HH:MM:SS)
+            event_time = event.get('timestamp', '')
+            if timestamp and event_time:
+                # Extract time portion from diagnostic timestamp
+                # Diagnostic format: "2024-10-28 09:18:00+05:30"
+                # Position format: "09:18:00" or "2024-10-28T09:18:00"
+                if len(event_time) >= 19:
+                    diagnostic_time = event_time[11:19]  # "09:18:00"
+                    
+                    # Extract HH:MM:SS from position timestamp
+                    pos_time = timestamp
+                    if 'T' in timestamp:
+                        pos_time = timestamp.split('T')[1][:8]
+                    elif len(timestamp) >= 8:
+                        pos_time = timestamp[:8]
+                    
+                    # Compare HH:MM:SS
+                    if diagnostic_time == pos_time:
+                        # Found the node execution - build full chain
+                        return build_flow_chain(events_history, exec_id)
+    
+    return []
+
+
 async def run_streaming_backtest(
     strategy_ids: List[str],
     backtest_date: date,
@@ -366,14 +430,20 @@ async def run_streaming_backtest(
                                         exit_data = txn.get('exit', {}) or {}
                                         entry_data = txn.get('entry', {}) or {}
                                         
-                                        # Get flow IDs - fallback to node_id if flow_ids not available
-                                        entry_flow_ids = entry_data.get('flow_ids', [])
-                                        if not entry_flow_ids and txn.get('node_id'):
-                                            entry_flow_ids = [txn.get('node_id')]
+                                        # Get events_history for this strategy to extract flow IDs
+                                        strat_events_history = strategy_state.get('node_events_history', {})
                                         
-                                        exit_flow_ids = exit_data.get('flow_ids', [])
-                                        if not exit_flow_ids and exit_data.get('node_id'):
-                                            exit_flow_ids = [exit_data.get('node_id')]
+                                        # Extract flow IDs using events_history (matches node_id + timestamp)
+                                        entry_node_id = txn.get('node_id')
+                                        entry_time = txn.get('entry_time', '')
+                                        entry_flow_ids = extract_flow_ids_from_events(strat_events_history, entry_node_id, entry_time)
+                                        
+                                        # For exit, use exit node_id and exit_time
+                                        exit_node_id = exit_data.get('node_id')
+                                        exit_time_str = txn.get('exit_time', '')
+                                        exit_flow_ids = []
+                                        if exit_node_id and exit_time_str:
+                                            exit_flow_ids = extract_flow_ids_from_events(strat_events_history, exit_node_id, exit_time_str)
                                         
                                         gps_positions[txn_key] = {
                                             'position_id': pos_id,
@@ -613,14 +683,24 @@ async def run_streaming_backtest(
                         exit_data = txn.get('exit', {}) or {}
                         entry_data = txn.get('entry', {}) or {}
                         
-                        # Get flow IDs - fallback to node_id if flow_ids not available
-                        entry_flow_ids = entry_data.get('flow_ids', [])
-                        if not entry_flow_ids and txn.get('node_id'):
-                            entry_flow_ids = [txn.get('node_id')]
+                        # Get events_history for this strategy to extract flow IDs
+                        strat_events_history = {}
+                        for instance_id, strategy_state in engine.centralized_processor.strategy_manager.active_strategies.items():
+                            if strategy_state.get('strategy_id') == strat_id:
+                                strat_events_history = strategy_state.get('node_events_history', {})
+                                break
                         
-                        exit_flow_ids = exit_data.get('flow_ids', [])
-                        if not exit_flow_ids and exit_data.get('node_id'):
-                            exit_flow_ids = [exit_data.get('node_id')]
+                        # Extract flow IDs using events_history (matches node_id + timestamp)
+                        entry_node_id = txn.get('node_id')
+                        entry_time = txn.get('entry_time', '')
+                        entry_flow_ids = extract_flow_ids_from_events(strat_events_history, entry_node_id, entry_time)
+                        
+                        # For exit, use exit node_id and exit_time
+                        exit_node_id = exit_data.get('node_id')
+                        exit_time = txn.get('exit_time', '')
+                        exit_flow_ids = []
+                        if exit_node_id and exit_time:
+                            exit_flow_ids = extract_flow_ids_from_events(strat_events_history, exit_node_id, exit_time)
                         
                         # Build trade record from transaction data
                         # position_num: 1 = initial entry, 2+ = re-entries

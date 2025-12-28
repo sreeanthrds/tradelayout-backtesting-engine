@@ -547,6 +547,9 @@ async def run_streaming_backtest(
                 winning_trades = sum(1 for t in strat_trades if float(t.get('pnl', 0) or 0) > 0 and t.get('status') == 'CLOSED')
                 losing_trades = sum(1 for t in strat_trades if float(t.get('pnl', 0) or 0) <= 0 and t.get('status') == 'CLOSED')
                 
+                # Get events_history for this strategy (send with trades)
+                strat_events_history = stored_events_history.get(strat_id, {})
+                
                 # Use queue_id (strat_id) as key - unique per broker account
                 strategy_data[strat_id] = {
                     "name": meta.get('name'),
@@ -562,7 +565,10 @@ async def run_streaming_backtest(
                         "winning_trades": winning_trades,
                         "losing_trades": losing_trades
                     },
-                    "trades": strat_trades
+                    "trades": strat_trades,
+                    "diagnostics": {
+                        "events_history": strat_events_history
+                    }
                 }
             
             # Debug: Log what we're about to send
@@ -625,12 +631,17 @@ async def run_streaming_backtest(
                     emitted_events.add(exec_id)
                     
                     # Emit node event for action nodes (entry, exit, square-off)
+                    # Include trades and full events_history with node_event
                     node_type = event_data.get('node_type', '')
                     if node_type in ['EntryNode', 'ExitNode', 'SquareOffNode']:
+                        # Get current trades for this strategy
+                        strat_trades = list(trades_list.get(strat_id, {}).values())
+                        
                         yield {
                             "type": "node_event",
                             "data": {
                                 "strategy_id": actual_strat_id,
+                                "queue_id": strat_id,
                                 "execution_id": exec_id,
                                 "node_id": event_data.get('node_id'),
                                 "node_name": event_data.get('node_name'),
@@ -640,7 +651,11 @@ async def run_streaming_backtest(
                                 "action": event_data.get('action'),
                                 "position": event_data.get('position'),
                                 "exit_result": event_data.get('exit_result'),
-                                "square_off": event_data.get('square_off')
+                                "square_off": event_data.get('square_off'),
+                                "trades": strat_trades,
+                                "diagnostics": {
+                                    "events_history": events_history
+                                }
                             }
                         }
             

@@ -134,20 +134,20 @@ def map_position_to_trade(pos: dict, diagnostics: dict) -> dict:
             pos.get('exit_node_id'),
             pos.get('exit_timestamp')
         )
-    
+
     # Convert datetime objects to strings
     entry_time = pos.get('entry_time')
     if hasattr(entry_time, 'isoformat'):
         entry_time = entry_time.isoformat()
     elif entry_time:
         entry_time = str(entry_time)
-    
+
     exit_time = pos.get('exit_time')
     if hasattr(exit_time, 'isoformat'):
         exit_time = exit_time.isoformat()
     elif exit_time:
         exit_time = str(exit_time)
-    
+
     return {
         'trade_id': pos.get('position_id'),
         'position_id': pos.get('position_id'),
@@ -304,6 +304,91 @@ class BacktestResponse(BaseModel):
     success: bool
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+
+# ============================================================================
+# COMPATIBILITY ENDPOINTS (UI expects these on some environments)
+# ============================================================================
+
+@app.get("/api/queue/status/{user_id}")
+async def get_queue_status_compat(user_id: str):
+    """Compatibility endpoint for legacy UI calls. Backtest server does not manage live queue."""
+    return {"entries": []}
+
+
+class ReadyValidationRequest(BaseModel):
+    user_id: str
+    strategy_id: str
+    broker_connection_id: str
+    existing_combinations: Optional[List[List[str]]] = None
+
+
+@app.post("/api/live-trading/validate-ready")
+async def validate_ready_compat(_: ReadyValidationRequest):
+    """Compatibility endpoint for legacy UI calls. Always returns ready on backtest server."""
+    return {
+        "ready": True,
+        "reason": "Backtest server: live validation skipped",
+        "broker_status": "unknown",
+        "broker_type": None
+    }
+
+
+class StreamingBacktestRequest(BaseModel):
+    backtest_date: str = Field(..., description="Backtest date in YYYY-MM-DD format")
+    strategy_ids: List[str] = Field(..., description="List of strategy IDs to run")
+    speed_multiplier: float = Field(50.0, description="Speed multiplier")
+    emit_interval: int = Field(10, description="Emit SSE event every N simulated seconds")
+
+
+@app.post("/api/v1/backtest/stream-live")
+async def stream_live_backtest(request: StreamingBacktestRequest):
+    """SSE streaming backtest endpoint used by the UI."""
+    try:
+        from src.backtesting.streaming_backtest import run_streaming_backtest
+
+        try:
+            backtest_dt = datetime.strptime(request.backtest_date, '%Y-%m-%d').date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid backtest_date format. Use YYYY-MM-DD")
+
+        # Build queue_entries from Supabase multi_strategy_queue (optional, best-effort)
+        queue_entries: Dict[str, Dict[str, Any]] = {}
+        try:
+            q = supabase.table('multi_strategy_queue')\
+                .select('strategy_id, actual_strategy_id, broker_connection_id, user_id, scale')\
+                .in_('strategy_id', request.strategy_ids)\
+                .eq('is_active', 1)\
+                .execute()
+            for row in (q.data or []):
+                queue_entries[str(row['strategy_id'])] = {
+                    'actual_strategy_id': row.get('actual_strategy_id') or row.get('strategy_id'),
+                    'broker_connection_id': row.get('broker_connection_id'),
+                    'user_id': row.get('user_id')
+                }
+        except Exception:
+            queue_entries = {}
+
+        async def event_generator():
+            async for event in run_streaming_backtest(
+                strategy_ids=request.strategy_ids,
+                backtest_date=backtest_dt,
+                scales=None,
+                queue_entries=queue_entries,
+                speed_multiplier=request.speed_multiplier,
+                emit_interval=request.emit_interval
+            ):
+                yield {
+                    "event": event.get('type', 'message'),
+                    "data": json.dumps(event.get('data', {}), cls=DateTimeEncoder)
+                }
+
+        return EventSourceResponse(event_generator())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start streaming backtest: {str(e)}")
 
 def generate_diagnostic_text(pos: Dict[str, Any], pos_num: int, txn_num: int) -> str:
     """
@@ -468,6 +553,33 @@ class MultiStrategyRequest(BaseModel):
 class MultiStrategyQueueRequest(BaseModel):
     """Request model for multi-strategy backtest from queue"""
     backtest_date: str = Field(..., description="Single date for backtesting (YYYY-MM-DD)")
+
+
+@app.get("/api/v1/backtest/trades/{strategy_id}/{date}")
+async def get_backtest_trades(strategy_id: str, date: str):
+    """Get trades_daily.json.gz for a specific backtest day."""
+    try:
+        dir_path = get_day_dir(strategy_id, date)
+        trades_file = f"{dir_path}/trades_daily.json.gz"
+
+        if not os.path.exists(trades_file):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Trades not found for {strategy_id} on {date}"
+            )
+
+        with gzip.open(trades_file, 'rt', encoding='utf-8') as f:
+            trades_data = json.load(f)
+
+        return trades_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error loading trades: {str(e)}"
+        )
 
 @app.get("/api/v1/backtest/diagnostics/{strategy_id}/{date}")
 async def get_backtest_diagnostics(strategy_id: str, date: str):

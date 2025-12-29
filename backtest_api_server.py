@@ -341,9 +341,18 @@ class StreamingBacktestRequest(BaseModel):
     emit_interval: int = Field(10, description="Emit SSE event every N simulated seconds")
 
 
+# Global background processes for satellite broadcasting
+background_processes: Dict[str, asyncio.Task] = {}
+background_event_queues: Dict[str, asyncio.Queue] = {}
+# Latest state store for catch-up (STATE SNAPSHOT, not event replay)
+background_latest_state: Dict[str, Dict] = {}
+
 @app.post("/api/v1/backtest/stream-live")
 async def stream_live_backtest(request: StreamingBacktestRequest):
-    """SSE streaming backtest endpoint used by the UI."""
+    """
+    Satellite Broadcasting System - Independent backend execution
+    Uses existing run_streaming_backtest but runs independently of UI connections
+    """
     try:
         from src.backtesting.streaming_backtest import run_streaming_backtest
 
@@ -369,26 +378,91 @@ async def stream_live_backtest(request: StreamingBacktestRequest):
         except Exception:
             queue_entries = {}
 
+        # Create unique session key for this strategy combination
+        session_key = f"{'_'.join(sorted(request.strategy_ids))}_{request.backtest_date}"
+        
+        # Start background process if not already running
+        if session_key not in background_processes or background_processes[session_key].done():
+            print(f"[API] Starting satellite broadcasting for session: {session_key}")
+            
+            # Create event queue for this session
+            if session_key not in background_event_queues:
+                background_event_queues[session_key] = asyncio.Queue()
+            # Initialize state snapshot
+            if session_key not in background_latest_state:
+                background_latest_state[session_key] = None
+            
+            # Start background process using existing code
+            async def background_runner():
+                try:
+                    async for event in run_streaming_backtest(
+                        strategy_ids=request.strategy_ids,
+                        backtest_date=backtest_dt,
+                        scales=None,
+                        queue_entries=queue_entries,
+                        speed_multiplier=request.speed_multiplier,
+                        emit_interval=request.emit_interval
+                    ):
+                        # 🔑 UPDATE STATE SNAPSHOT (not event replay)
+                        if event.get('type') == 'tick':
+                            background_latest_state[session_key] = event.get('data', {})
+                            print(f"[Satellite] Updated state snapshot: {event.get('timestamp')}")
+                        
+                        # Broadcast to all connected clients
+                        await background_event_queues[session_key].put(event)
+                        print(f"[Satellite] Broadcasted event: {event.get('type')}")
+                except Exception as e:
+                    print(f"[Satellite] Background process error: {e}")
+            
+            background_processes[session_key] = asyncio.create_task(background_runner())
+
         async def event_generator():
-            async for event in run_streaming_backtest(
-                strategy_ids=request.strategy_ids,
-                backtest_date=backtest_dt,
-                scales=None,
-                queue_entries=queue_entries,
-                speed_multiplier=request.speed_multiplier,
-                emit_interval=request.emit_interval
-            ):
+            """Connect UI to independent satellite broadcasting - STATE FIRST approach"""
+            print(f"[API] UI connected to satellite broadcast: {session_key}")
+            
+            # 🔑 REAL CATCH-UP: Send latest state snapshot FIRST
+            if session_key in background_latest_state and background_latest_state[session_key]:
+                latest_state = background_latest_state[session_key]
+                print(f"[API] Sending state snapshot catch-up: {latest_state.get('timestamp')}")
+                
                 yield {
-                    "event": event.get('type', 'message'),
-                    "data": json.dumps(event.get('data', {}), cls=DateTimeEncoder)
+                    "event": "state_snapshot",
+                    "data": json.dumps(latest_state, cls=DateTimeEncoder)
                 }
+                
+                # Send catch-up complete event
+                yield {
+                    "event": "catchup_complete",
+                    "data": json.dumps({
+                        "message": "State snapshot catch-up complete",
+                        "current_time": latest_state.get('timestamp'),
+                        "strategy_data": latest_state.get('strategy_data', {})
+                    }, cls=DateTimeEncoder)
+                }
+            else:
+                print(f"[API] No state snapshot available yet, waiting for live events")
+            
+            # Stream live events from background process
+            while True:
+                try:
+                    event = await background_event_queues[session_key].get()
+                    yield {
+                        "event": event.get('type', 'message'),
+                        "data": json.dumps(event.get('data', {}), cls=DateTimeEncoder)
+                    }
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    print(f"[API] Error streaming to UI: {e}")
+                    break
 
         return EventSourceResponse(event_generator())
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start streaming backtest: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start satellite broadcasting: {str(e)}")
+
 
 def generate_diagnostic_text(pos: Dict[str, Any], pos_num: int, txn_num: int) -> str:
     """

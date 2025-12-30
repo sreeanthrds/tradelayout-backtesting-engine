@@ -340,12 +340,22 @@ class StreamingBacktestRequest(BaseModel):
     speed_multiplier: float = Field(50.0, description="Speed multiplier")
     emit_interval: int = Field(10, description="Emit SSE event every N simulated seconds")
 
+class LiveTradingRequest(BaseModel):
+    strategy_ids: List[str] = Field(..., description="List of strategy IDs to run live")
+    broker_connection_id: str = Field(..., description="Broker connection ID for real trading")
+    emit_interval: int = Field(5, description="Emit SSE event every N seconds (real-time)")
+
 
 # Global background processes for satellite broadcasting
 background_processes: Dict[str, asyncio.Task] = {}
 background_event_queues: Dict[str, asyncio.Queue] = {}
 # Latest state store for catch-up (STATE SNAPSHOT, not event replay)
 background_latest_state: Dict[str, Dict] = {}
+
+# Global live trading processes (real-time with real brokers)
+live_trading_processes: Dict[str, asyncio.Task] = {}
+live_trading_queues: Dict[str, asyncio.Queue] = {}
+live_trading_state: Dict[str, Dict] = {}
 
 @app.post("/api/v1/backtest/stream-live")
 async def stream_live_backtest(request: StreamingBacktestRequest):
@@ -462,6 +472,123 @@ async def stream_live_backtest(request: StreamingBacktestRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start satellite broadcasting: {str(e)}")
+
+
+@app.post("/api/v1/live-trading/start")
+async def start_live_trading(request: LiveTradingRequest):
+    """
+    Live Trading System - Real-time execution with real brokers
+    Uses Satellite Broadcasting architecture for real trading
+    """
+    try:
+        # Create unique session key for live trading
+        session_key = f"live_{'_'.join(sorted(request.strategy_ids))}_{request.broker_connection_id}"
+        
+        # Start live trading process if not already running
+        if session_key not in live_trading_processes or live_trading_processes[session_key].done():
+            print(f"[API] Starting live trading for session: {session_key}")
+            
+            # Create event queue for this session
+            if session_key not in live_trading_queues:
+                live_trading_queues[session_key] = asyncio.Queue()
+            # Initialize live trading state
+            if session_key not in live_trading_state:
+                live_trading_state[session_key] = None
+            
+            # TODO: Implement real live trading execution
+            # For now, we'll create a placeholder that simulates live trading
+            async def live_trading_runner():
+                try:
+                    # Placeholder for real live trading logic
+                    # This will be replaced with actual broker integration
+                    import time
+                    from datetime import datetime
+                    
+                    while True:
+                        # Simulate live trading updates
+                        current_time = datetime.now()
+                        live_state = {
+                            "type": "live_tick",
+                            "timestamp": current_time.isoformat(),
+                            "broker_connection_id": request.broker_connection_id,
+                            "strategy_ids": request.strategy_ids,
+                            "status": "RUNNING",
+                            "positions": {},
+                            "pnl_summary": {
+                                "realized_pnl": 0,
+                                "unrealized_pnl": 0,
+                                "total_pnl": 0,
+                                "open_positions": 0,
+                                "closed_positions": 0
+                            },
+                            "strategy_data": {}
+                        }
+                        
+                        # Update state snapshot
+                        live_trading_state[session_key] = live_state
+                        
+                        # Broadcast to all connected clients
+                        await live_trading_queues[session_key].put({
+                            "type": "live_tick",
+                            "data": live_state
+                        })
+                        
+                        print(f"[Live Trading] Broadcasted live tick: {current_time}")
+                        
+                        # Wait for next emit interval (real-time)
+                        await asyncio.sleep(request.emit_interval)
+                        
+                except Exception as e:
+                    print(f"[Live Trading] Process error: {e}")
+            
+            live_trading_processes[session_key] = asyncio.create_task(live_trading_runner())
+
+        async def event_generator():
+            """Connect UI to live trading satellite broadcasting"""
+            print(f"[API] UI connected to live trading: {session_key}")
+            
+            # 🔑 Send latest live trading state FIRST
+            if session_key in live_trading_state and live_trading_state[session_key]:
+                latest_state = live_trading_state[session_key]
+                print(f"[API] Sending live trading state snapshot: {latest_state.get('timestamp')}")
+                
+                yield {
+                    "event": "state_snapshot",
+                    "data": json.dumps(latest_state, cls=DateTimeEncoder)
+                }
+                
+                # Send catch-up complete event
+                yield {
+                    "event": "catchup_complete",
+                    "data": json.dumps({
+                        "message": "Live trading state snapshot complete",
+                        "current_time": latest_state.get('timestamp'),
+                        "broker_connection_id": request.broker_connection_id
+                    }, cls=DateTimeEncoder)
+                }
+            else:
+                print(f"[API] No live trading state available yet, waiting for live events")
+            
+            # Stream live events from live trading process
+            while True:
+                try:
+                    event = await live_trading_queues[session_key].get()
+                    yield {
+                        "event": event.get('type', 'message'),
+                        "data": json.dumps(event.get('data', {}), cls=DateTimeEncoder)
+                    }
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    print(f"[API] Error streaming live trading to UI: {e}")
+                    break
+
+        return EventSourceResponse(event_generator())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start live trading: {str(e)}")
 
 
 def generate_diagnostic_text(pos: Dict[str, Any], pos_num: int, txn_num: int) -> str:

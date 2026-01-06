@@ -345,18 +345,20 @@ def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict 
     positions_by_strategy = {}
     positions_without_strategy = []
     
-    print(f"[DEBUG] Total positions in dashboard_data: {len(dashboard_data['positions'])}")
+    print(f"[DEBUG] Processing {len(dashboard_data['positions'])} total positions")
     
     for pos in dashboard_data['positions']:
-        sid = pos.get('strategy_id', 'unknown')
-        if sid == 'unknown' or not sid:
-            positions_without_strategy.append(pos)
-            print(f"[DEBUG] Position without strategy_id: {pos.get('position_id', 'N/A')} - strategy: {pos.get('strategy', 'N/A')}")
+        pos_strategy_id = pos.get('strategy_id')
+        if pos_strategy_id:
+            print(f"[DEBUG] Position {pos.get('position_id')} belongs to strategy {pos_strategy_id}")
+            if pos_strategy_id not in positions_by_strategy:
+                positions_by_strategy[pos_strategy_id] = []
+            positions_by_strategy[pos_strategy_id].append(pos)
         else:
-            if sid not in positions_by_strategy:
-                positions_by_strategy[sid] = []
-            positions_by_strategy[sid].append(pos)
+            print(f"[DEBUG] Position {pos.get('position_id')} has no strategy_id")
+            positions_without_strategy.append(pos)
     
+    print(f"[DEBUG] Total positions in dashboard_data: {len(dashboard_data['positions'])}")
     print(f"[DEBUG] Positions without strategy_id: {len(positions_without_strategy)}")
     print(f"[DEBUG] Positions by strategy: {[(sid, len(positions)) for sid, positions in positions_by_strategy.items()]}")
     
@@ -418,6 +420,8 @@ def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict 
         positions = positions_by_strategy.get(sid, [])
         all_positions.extend(positions)
         
+        print(f"[DEBUG] Processing strategy {sid}: {len(positions)} positions")
+        
         closed_positions = [p for p in positions if p['status'] == 'CLOSED']
         open_positions = [p for p in positions if p['status'] == 'OPEN']
         
@@ -425,6 +429,8 @@ def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict 
         winning_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] > 0]
         losing_trades = [p for p in closed_positions if p['pnl'] and p['pnl'] < 0]
         breakeven_trades = [p for p in closed_positions if p['pnl'] == 0]
+        
+        print(f"[DEBUG] Strategy {sid} summary: {len(closed_positions)} closed, {len(open_positions)} open, PnL: {total_pnl}")
         
         avg_win = sum(p['pnl'] for p in winning_trades) / len(winning_trades) if winning_trades else 0
         avg_loss = sum(p['pnl'] for p in losing_trades) / len(losing_trades) if losing_trades else 0
@@ -476,6 +482,10 @@ def run_multi_strategy_backtest(strategy_ids: list, backtest_date, scales: dict 
                 're_entries': len([p for p in positions if p['re_entry_num'] > 0])
             }
         }
+        
+        print(f"[DEBUG] Added strategy {sid} to results with {len(positions)} positions")
+    
+    print(f"[DEBUG] Final results contain {len(results['strategies'])} strategies: {list(results['strategies'].keys())}")
     
     # Calculate combined summary across all strategies
     all_closed = [p for p in all_positions if p['status'] == 'CLOSED']

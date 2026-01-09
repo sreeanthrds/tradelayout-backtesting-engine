@@ -197,7 +197,9 @@ class CentralizedTickProcessor:
         context['node_states'] = strategy_state['node_states']
         
         # MULTI-STRATEGY: Add strategy_id to context for position tracking
-        context['strategy_id'] = strategy_state.get('strategy_id', '')
+        context_strategy_id = strategy_state.get('strategy_id', '')
+        context['strategy_id'] = context_strategy_id
+        print(f"[DEBUG] Context strategy_id set to: {context_strategy_id} for instance: {instance_id}")
         
         # Step 2: Reset visited flags (prepare for new node tree traversal)
         for node_id in strategy_state['node_states']:

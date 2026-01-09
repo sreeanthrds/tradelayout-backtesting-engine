@@ -847,6 +847,7 @@ class EntryNode(BaseNode):
             print(f"✅ POSITION STORED: {position_id}")
             print(f"   Symbol: {entry_data['symbol']}")
             print(f"   Quantity: {entry_data['quantity']}")
+            print(f"   Strategy ID: {entry_data['strategy_id']}")
             print(f"   Entry Price: {entry_data['entry_price']:.2f}")
 
             # Debug: confirm transactions count after add

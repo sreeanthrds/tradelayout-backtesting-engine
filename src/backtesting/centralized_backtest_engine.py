@@ -96,12 +96,15 @@ class CentralizedBacktestEngine(BacktestEngine):
             
             # Override strategy_id with queue_id (so all downstream uses queue_id as unique identifier)
             if queue_entry:
+                print(f"[DEBUG] Setting strategy_id: {strategy_id} (was {strategy.strategy_id}), actual_strategy_id: {actual_strategy_id}")
                 strategy.strategy_id = strategy_id  # queue_id becomes the strategy_id
                 strategy.actual_strategy_id = actual_strategy_id  # preserve original
                 strategy.broker_connection_id = broker_connection_id
                 # Also inject user_id if provided in queue_entry
                 if queue_entry.get('user_id'):
                     strategy.user_id = queue_entry['user_id']
+            else:
+                print(f"[DEBUG] No queue_entry for strategy_id: {strategy_id}, keeping original strategy_id: {strategy.strategy_id}")
             
             strategies.append(strategy)
         

@@ -315,6 +315,29 @@ async def get_queue_status_compat(user_id: str):
     """Compatibility endpoint for legacy UI calls. Backtest server does not manage live queue."""
     return {"entries": []}
 
+@app.get("/api/queue/status/admin_tester")
+async def get_queue_status_admin_tester():
+    """Get queue status for admin_tester user."""
+    # For backtest server, return empty queue (managed by Supabase)
+    return {"entries": []}
+
+@app.post("/api/queue/toggle")
+async def toggle_queue(request: dict):
+    """Toggle strategy in queue (add/remove)."""
+    try:
+        strategy_id = request.get('strategy_id')
+        action = request.get('action')  # 'add' or 'remove'
+        
+        if not strategy_id or not action:
+            raise HTTPException(status_code=400, detail="Missing strategy_id or action")
+        
+        # For backtest server, this is a no-op (managed by Supabase)
+        # Just return success to make UI happy
+        return {"success": True, "message": f"Strategy {strategy_id} {action}ed"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 class ReadyValidationRequest(BaseModel):
     user_id: str

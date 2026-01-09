@@ -48,7 +48,6 @@ htmlcov/
 .env.*.local
 
 # Data
-data/
 *.db
 *.sqlite
 *.log

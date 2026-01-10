@@ -43,17 +43,10 @@ class ExpiryDetector:
         """
         # Connect to ClickHouse
         try:
-            client = clickhouse_connect.get_client(
-                host=self.config.HOST,
-                user=self.config.USER,
-                password=self.config.PASSWORD,
-                secure=self.config.SECURE,
-                database=self.config.DATABASE
-            )
+            from src.storage.clickhouse_client import get_clickhouse_client
+            client = get_clickhouse_client()
         except Exception as e:
-            log_info(f"⚠️  ExpiryDetector: Cannot connect to ClickHouse: {e}")
-            log_info("⚠️  Returning empty expiries list (backtest-only mode)")
-            return []
+            raise RuntimeError(f"ClickHouse connection is REQUIRED: {e}")
         
         try:
             # Query to get unique expiries

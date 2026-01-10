@@ -69,13 +69,8 @@ def run_backtest(
     print(f"   ✅ Strategy loaded: {strategy.get('name')}")
     
     # ClickHouse client
-    clickhouse_client = clickhouse_connect.get_client(
-        host=ClickHouseConfig.HOST,
-        user=ClickHouseConfig.USER,
-        password=ClickHouseConfig.PASSWORD,
-        secure=ClickHouseConfig.SECURE,
-        database=ClickHouseConfig.DATABASE
-    )
+    from src.storage.clickhouse_client import get_clickhouse_client
+    clickhouse_client = get_clickhouse_client()
     print("   ✅ ClickHouse connected")
     
     # Backtesting broker

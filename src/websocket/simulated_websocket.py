@@ -59,13 +59,8 @@ class SimulatedWebSocket:
     def connect(self) -> bool:
         """Connect to ClickHouse."""
         try:
-            self.client = clickhouse_connect.get_client(
-                host=self.config.HOST,
-                user=self.config.USER,
-                password=self.config.PASSWORD,
-                secure=self.config.SECURE,
-                database=self.config.DATABASE
-            )
+            from src.storage.clickhouse_client import get_clickhouse_client
+            self.client = get_clickhouse_client()
             
             log_info("✅ Connected to ClickHouse for tick replay")
             return True

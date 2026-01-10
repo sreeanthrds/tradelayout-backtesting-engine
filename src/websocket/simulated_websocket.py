@@ -118,7 +118,7 @@ class SimulatedWebSocket:
             sell_qty,
             ltq,
             oi
-        FROM nse_ticks_indices
+        FROM tradelayout.nse_ticks_indices
         WHERE trading_day = '{self.backtest_date}'
         """
         
@@ -179,7 +179,7 @@ class SimulatedWebSocket:
             sell_qty,
             ltq,
             oi
-        FROM nse_ticks_options
+        FROM tradelayout.nse_ticks_options
         WHERE trading_day = '{self.backtest_date}'
         ORDER BY timestamp ASC
         """

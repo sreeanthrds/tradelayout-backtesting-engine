@@ -16,7 +16,7 @@ class ClickHouseConfig:
     USER = os.getenv('CLICKHOUSE_USER', 'tradelayout')  # Fixed: changed from 'default' to 'tradelayout'
     PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', 'Unificater123*')  # Fixed: added default password
     SECURE = os.getenv('CLICKHOUSE_SECURE', 'false').lower() == 'true'
-    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'default')
+    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'tradelayout')  # Changed from 'default' to 'tradelayout'
     
     # Table settings
     TABLE_NAME = os.getenv('CLICKHOUSE_TABLE', 'nse_ticks_stocks')
@@ -80,5 +80,5 @@ CLICKHOUSE_CONFIG = {
     "port": int(os.getenv("CLICKHOUSE_PORT", "8123")),
     "username": os.getenv("CLICKHOUSE_USER", "tradelayout"),
     "password": os.getenv("CLICKHOUSE_PASSWORD", "Unificater123*"),
-    "database": os.getenv("CLICKHOUSE_DATABASE", "default"),
+    "database": os.getenv("CLICKHOUSE_DATABASE", "tradelayout"),
 } 

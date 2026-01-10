@@ -952,10 +952,10 @@ class DataManager:
             logger.info(f"   ✅ ClickHouse client assigned to self.clickhouse_client")
             
             try:
-                ohlcv_exists = client.command("EXISTS TABLE tradelayout.nse_ohlcv_indices")
-                ticks_exists = client.command("EXISTS TABLE tradelayout.nse_ticks_indices")
-                opt_meta_exists = client.command("EXISTS TABLE tradelayout.nse_options_metadata")
-                opt_ticks_exists = client.command("EXISTS TABLE tradelayout.nse_ticks_options")
+                ohlcv_exists = client.command("EXISTS TABLE nse_ohlcv_indices")
+                ticks_exists = client.command("EXISTS TABLE nse_ticks_indices")
+                opt_meta_exists = client.command("EXISTS TABLE nse_options_metadata")
+                opt_ticks_exists = client.command("EXISTS TABLE nse_ticks_options")
                 
                 if ohlcv_exists != 1:
                     logger.warning("   ⚠️  ClickHouse connected but nse_ohlcv_indices table not found")
@@ -977,10 +977,10 @@ class DataManager:
     
             
             try:
-                ohlcv_exists = client.command("EXISTS TABLE tradelayout.nse_ohlcv_indices")
-                ticks_exists = client.command("EXISTS TABLE tradelayout.nse_ticks_indices")
-                opt_meta_exists = client.command("EXISTS TABLE tradelayout.nse_options_metadata")
-                opt_ticks_exists = client.command("EXISTS TABLE tradelayout.nse_ticks_options")
+                ohlcv_exists = client.command("EXISTS TABLE nse_ohlcv_indices")
+                ticks_exists = client.command("EXISTS TABLE nse_ticks_indices")
+                opt_meta_exists = client.command("EXISTS TABLE nse_options_metadata")
+                opt_ticks_exists = client.command("EXISTS TABLE nse_ticks_options")
                 
                 if ohlcv_exists != 1:
                     logger.warning("   ⚠️  ClickHouse connected but nse_ohlcv_indices table not found")
@@ -1096,7 +1096,7 @@ class DataManager:
                     ltp,
                     ltq,
                     oi
-                FROM tradelayout.nse_ticks_options
+                FROM nse_ticks_options
                 WHERE trading_day = '{trading_day}'
                   AND ticker = '{ch_symbol_with_nfo}'
                   AND timestamp >= '{timestamp_str}'
@@ -1315,7 +1315,7 @@ class DataManager:
                         volume,
                         symbol,
                         timeframe
-                    FROM tradelayout.nse_ohlcv_indices
+                    FROM nse_ohlcv_indices
                     WHERE symbol IN ({','.join(f"'{s}'" for s in strategy.get_symbols())})
                       AND timeframe = '{timeframe}'
                       AND timestamp < '{backtest_date.strftime('%Y-%m-%d')} 09:15:00'
@@ -1449,7 +1449,7 @@ class DataManager:
                             volume,
                             symbol,
                             timeframe
-                        FROM tradelayout.nse_ohlcv_indices
+                        FROM nse_ohlcv_indices
                         WHERE symbol = '{sym}'
                           AND timeframe = '{tf}'
                           AND timestamp < '{backtest_date.strftime('%Y-%m-%d')} 09:15:00'
@@ -1503,7 +1503,7 @@ class DataManager:
                 ltp,
                 ltq,
                 oi
-            FROM tradelayout.nse_ticks_indices
+            FROM nse_ticks_indices
             WHERE trading_day = '{trading_day}'
               AND timestamp >= '{trading_day} 09:15:00'
               AND timestamp <= '{trading_day} 15:30:00'
@@ -1564,7 +1564,7 @@ class DataManager:
                 groupArray(ltp)[-1] as close,           -- Last LTP in second
                 sum(ltq) as volume,                     -- Sum of volumes
                 groupArray(oi)[-1] as oi               -- Last OI in second
-            FROM tradelayout.nse_ticks_indices
+            FROM nse_ticks_indices
             WHERE trading_day = '{trading_day}'
               AND timestamp >= '{trading_day} 09:15:00'
               AND timestamp <= '{trading_day} 15:30:00'
@@ -1626,7 +1626,7 @@ class DataManager:
                 ticker,
                 timestamp,
                 ltp
-            FROM tradelayout.nse_ticks_options
+            FROM nse_ticks_options
             WHERE trading_day = '{trading_day}'
               AND ticker IN ('{ticker_list}')
             ORDER BY timestamp ASC
@@ -1705,7 +1705,7 @@ class DataManager:
                 ticker,
                 toDateTime(toInt64(timestamp)) as second,
                 groupArray(ltp)[-1] as ltp
-            FROM tradelayout.nse_ticks_options
+            FROM nse_ticks_options
             WHERE trading_day = '{trading_day}'
               AND ({ticker_conditions})
               {timestamp_filter}

@@ -70,4 +70,13 @@ class ClickHouseConfig:
 
 
 # Default configuration instance
-clickhouse_config = ClickHouseConfig() 
+clickhouse_config = ClickHouseConfig()
+
+# Also provide the dict format for the centralized client factory
+CLICKHOUSE_CONFIG = {
+    "host": os.getenv("CLICKHOUSE_HOST", "localhost"),
+    "port": int(os.getenv("CLICKHOUSE_PORT", "8123")),
+    "username": os.getenv("CLICKHOUSE_USER", "tradelayout"),
+    "password": os.getenv("CLICKHOUSE_PASSWORD", "Unificater123*"),
+    "database": os.getenv("CLICKHOUSE_DATABASE", "tradelayout"),
+}

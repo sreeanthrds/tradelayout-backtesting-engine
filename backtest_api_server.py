@@ -1757,7 +1757,8 @@ async def stream_backtest_progress(backtest_id: str):
                 
                 print(f"[API] Processing day {idx}/{total_days}: {test_date}")
                 
-                try:
+                # try:
+                if True:
                     # Run backtest for this day
                     daily_data = run_dashboard_backtest(strategy_id, test_date)
                     
@@ -1796,15 +1797,15 @@ async def stream_backtest_progress(backtest_id: str):
                         })
                     }
                     
-                except Exception as day_error:
-                    print(f"[API ERROR] Day {test_date} failed: {str(day_error)}")
-                    yield {
-                        "event": "error",
-                        "data": json.dumps({
-                            "date": test_date.strftime('%Y-%m-%d'),
-                            "error": str(day_error)
-                        })
-                    }
+                # except Exception as day_error:
+                #     print(f"[API ERROR] Day {test_date} failed: {str(day_error)}")
+                #     yield {
+                #         "event": "error",
+                #         "data": json.dumps({
+                #             "date": test_date.strftime('%Y-%m-%d'),
+                #             "error": str(day_error)
+                #         })
+                #     }
                 
                 await asyncio.sleep(0)
             

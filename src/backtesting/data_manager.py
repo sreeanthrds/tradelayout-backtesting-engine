@@ -768,8 +768,15 @@ class DataManager:
             timeframes = list(timeframes_set)
             logger.info(f"   Using aggregated timeframes: {timeframes}")
         else:
-            # Legacy single-strategy path
-            timeframes = strategy.get_timeframes()
+            # Legacy single-strategy path: extract TF from "SYMBOL:TF" format if needed
+            timeframes_set = set()
+            for tf in strategy.get_timeframes():
+                if ':' in tf:
+                    # Extract TF from "NIFTY:1m" -> "1m"
+                    timeframes_set.add(tf.split(':')[1])
+                else:
+                    timeframes_set.add(tf)
+            timeframes = list(timeframes_set)
         
         self._setup_candle_builders(timeframes)
         
@@ -971,35 +978,14 @@ class DataManager:
                 logger.warning(f"   ⚠️  ClickHouse table existence check failed: {e}")
                 
         except Exception as e:
-            logger.warning(f"   ⚠️  ClickHouse connection failed: {e}")
-            logger.warning("   ⚠️  Running in backtest-only mode (no live ClickHouse queries)")
+            error_msg = f"❌ CRITICAL: ClickHouse connection failed: {e}"
+            logger.error(error_msg)
+            logger.error("   ClickHouse is required for backtesting - cannot proceed without connection")
+            logger.error("   Please check ClickHouse server status and configuration")
             self.clickhouse_client = None
+            raise RuntimeError(error_msg) from e
     
             
-            try:
-                ohlcv_exists = client.command("EXISTS TABLE nse_ohlcv_indices")
-                ticks_exists = client.command("EXISTS TABLE nse_ticks_indices")
-                opt_meta_exists = client.command("EXISTS TABLE nse_options_metadata")
-                opt_ticks_exists = client.command("EXISTS TABLE nse_ticks_options")
-                
-                if ohlcv_exists != 1:
-                    logger.warning("   ⚠️  ClickHouse connected but nse_ohlcv_indices table not found")
-                if ticks_exists != 1:
-                    logger.warning("   ⚠️  ClickHouse connected but nse_ticks_indices table not found")
-                if opt_meta_exists != 1:
-                    logger.warning("   ⚠️  ClickHouse connected but nse_options_metadata table not found")
-                if opt_ticks_exists != 1:
-                    logger.warning("   ⚠️  ClickHouse connected but nse_ticks_options table not found")
-                
-                logger.info("   ✅ ClickHouse client initialized")
-            except Exception as e:
-                logger.warning(f"   ⚠️  ClickHouse table existence check failed: {e}")
-                
-        except Exception as e:
-            logger.warning(f"   ⚠️  ClickHouse connection failed: {e}")
-            logger.warning("   ⚠️  Running in backtest-only mode (no live ClickHouse queries)")
-            self.clickhouse_client = None
-    
     def _initialize_option_components(self):
         """Initialize lazy option loader and pattern resolver."""
         logger.info("   Initializing option components...")
@@ -1295,11 +1281,13 @@ class DataManager:
             strategy: StrategyMetadata object
             backtest_date: Date to run backtest on
         """
-        # Skip historical loading if no ClickHouse client (backtest-only mode)
+        # Validate ClickHouse availability - this is critical for historical data
         if self.clickhouse_client is None:
-            logger.warning("   ⚠️  Skipping historical candle loading (no ClickHouse connection)")
-            logger.info("   ℹ️  Will build candles from pre-loaded tick data")
-            return
+            error_msg = "❌ CRITICAL: ClickHouse client is None - cannot load historical candles"
+            logger.error(error_msg)
+            logger.error("   This will cause backtest failure as no candle data can be loaded")
+            logger.error("   Please check ClickHouse connection and configuration")
+            raise RuntimeError(error_msg)
         
         logger.info("   Loading historical candles from ClickHouse...")
         
@@ -1415,11 +1403,13 @@ class DataManager:
             strategies_agg: Aggregated metadata with timeframes list
             backtest_date: Date to run backtest on
         """
-        # Skip if no ClickHouse client (backtest-only mode)
+        # Validate ClickHouse availability - this is critical for historical data
         if self.clickhouse_client is None:
-            logger.warning("   ⚠️  Skipping historical candle loading (no ClickHouse connection)")
-            logger.info("   ℹ️  Will build candles from pre-loaded tick data")
-            return
+            error_msg = "❌ CRITICAL: ClickHouse client is None - cannot load historical candles"
+            logger.error(error_msg)
+            logger.error("   This will cause backtest failure as no candle data can be loaded")
+            logger.error("   Please check ClickHouse connection and configuration")
+            raise RuntimeError(error_msg)
         
         logger.info("   Loading historical candles from ClickHouse (aggregated)...")
         

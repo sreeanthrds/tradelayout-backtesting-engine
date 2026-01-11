@@ -13,8 +13,8 @@ class ClickHouseConfig:
     # Connection settings - Using localhost
     HOST = os.getenv('CLICKHOUSE_HOST', 'localhost')
     PORT = int(os.getenv('CLICKHOUSE_PORT', '8123'))  # Added missing PORT setting
-    USER = os.getenv('CLICKHOUSE_USER', 'tradelayout')  # Fixed: changed from 'default' to 'tradelayout'
-    PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', 'Unificater123*')  # Fixed: added default password
+    USER = os.getenv('CLICKHOUSE_USER', 'default')  # Fixed: use 'default' user since only that exists
+    PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', '')  # Fixed: default user has no password
     SECURE = os.getenv('CLICKHOUSE_SECURE', 'false').lower() == 'true'
     DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'default')  # Changed back to 'default' - tables exist there
     
@@ -78,7 +78,7 @@ clickhouse_config = ClickHouseConfig()
 CLICKHOUSE_CONFIG = {
     "host": os.getenv("CLICKHOUSE_HOST", "localhost"),
     "port": int(os.getenv("CLICKHOUSE_PORT", "8123")),
-    "username": os.getenv("CLICKHOUSE_USER", "tradelayout"),
-    "password": os.getenv("CLICKHOUSE_PASSWORD", "Unificater123*"),
+    "username": os.getenv("CLICKHOUSE_USER", "default"),
+    "password": os.getenv("CLICKHOUSE_PASSWORD", ""),
     "database": os.getenv("CLICKHOUSE_DATABASE", "default"),
 } 

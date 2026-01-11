@@ -26,9 +26,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Set ClickHouse environment variables for centralized client factory
 os.environ["CLICKHOUSE_HOST"] = os.getenv("CLICKHOUSE_HOST", "localhost")
 os.environ["CLICKHOUSE_PORT"] = os.getenv("CLICKHOUSE_PORT", "8123")
-os.environ["CLICKHOUSE_USER"] = os.getenv("CLICKHOUSE_USER", "tradelayout")
-os.environ["CLICKHOUSE_PASSWORD"] = os.getenv("CLICKHOUSE_PASSWORD", "Unificater123*")
-os.environ["CLICKHOUSE_DATABASE"] = os.getenv("CLICKHOUSE_DATABASE", "tradelayout")
+os.environ["CLICKHOUSE_USER"] = os.getenv("CLICKHOUSE_USER", "default")
+os.environ["CLICKHOUSE_PASSWORD"] = os.getenv("CLICKHOUSE_PASSWORD", "")
+os.environ["CLICKHOUSE_DATABASE"] = os.getenv("CLICKHOUSE_DATABASE", "default")
 
 print("🔧 ClickHouse environment variables set:")
 print(f"   Host: {os.environ['CLICKHOUSE_HOST']}")

@@ -12,11 +12,10 @@ class ClickHouseConfig:
     
     # Connection settings - Using localhost
     HOST = os.getenv('CLICKHOUSE_HOST', 'localhost')
-    PORT = int(os.getenv('CLICKHOUSE_PORT', '8123'))  # Added missing PORT setting
-    USER = os.getenv('CLICKHOUSE_USER', 'tradelayout')  # Fixed: changed from 'default' to 'tradelayout'
-    PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', 'Unificater123*')  # Fixed: added default password
+    USER = os.getenv('CLICKHOUSE_USER', 'default')
+    PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', '')
     SECURE = os.getenv('CLICKHOUSE_SECURE', 'false').lower() == 'true'
-    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'default')  # Changed back to 'default' - tables exist there
+    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'default')
     
     # Table settings
     TABLE_NAME = os.getenv('CLICKHOUSE_TABLE', 'nse_ticks_stocks')
@@ -34,7 +33,6 @@ class ClickHouseConfig:
         """Get ClickHouse connection configuration."""
         return {
             'host': cls.HOST,
-            'port': cls.PORT,  # Added port to connection config
             'user': cls.USER,
             'password': cls.PASSWORD,
             'secure': cls.SECURE,
@@ -72,13 +70,4 @@ class ClickHouseConfig:
 
 
 # Default configuration instance
-clickhouse_config = ClickHouseConfig()
-
-# Also provide the dict format for the centralized client factory
-CLICKHOUSE_CONFIG = {
-    "host": os.getenv("CLICKHOUSE_HOST", "localhost"),
-    "port": int(os.getenv("CLICKHOUSE_PORT", "8123")),
-    "username": os.getenv("CLICKHOUSE_USER", "tradelayout"),
-    "password": os.getenv("CLICKHOUSE_PASSWORD", "Unificater123*"),
-    "database": os.getenv("CLICKHOUSE_DATABASE", "default"),
-} 
+clickhouse_config = ClickHouseConfig() 

@@ -1,0 +1,202 @@
+# TradeLayout Engine - COMPLETE EXACT Requirements for VM
+# Must match local environment exactly
+# Python: 3.12.3
+
+# Core Python packages - EXACT versions
+pip==24.0
+setuptools==69.0.0
+wheel==0.42.0
+
+# Async support - EXACT versions
+aiohttp==3.9.0
+aiofiles==23.0.0
+aioredis==2.0.0
+aiohappyeyeballs==2.16.0
+aiosignal==1.3.1
+anyio==4.7.0
+
+# Database - EXACT versions
+clickhouse-driver==0.2.10
+clickhouse-connect==0.8.18
+redis==6.4.0
+hiredis==3.3.0
+sqlite3  # Built-in with Python
+
+# Data processing - EXACT versions
+pandas==2.3.2
+numpy==2.2.6
+scipy==1.11.0
+scikit-learn==1.3.0
+numba==0.60.0
+pyarrow==18.1.0
+
+# Technical Analysis - EXACT versions
+pandas-ta==0.4.71b0
+yfinance==0.2.66
+TA-Lib==0.4.28
+
+# API - EXACT versions
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.10.6
+pydantic-settings==2.11.0
+pydantic_core==2.27.2
+sse-starlette==1.8.1
+starlette==0.46.0
+
+# WebSocket - EXACT versions
+websocket-client==1.8.0
+websockets==15.0.1
+simple-websocket==1.1.0
+trio-websocket==0.11.1
+engineio==4.10.1
+socketio==5.11.4
+python-socketio==5.10.0
+
+# Authentication & Security - EXACT versions
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+cryptography==44.0.2
+itsdangerous==2.2.0
+
+# Cloud Services - EXACT versions
+supabase==2.16.0
+razorpay==1.3.0
+boto3==1.36.26
+botocore==1.36.26
+s3transfer==0.11.2
+awscrt==0.24.1
+
+# Utilities - EXACT versions
+python-dotenv==1.0.0
+pytz==2024.2
+requests==2.32.3
+urllib3==2.3.0
+certifi==2025.1.8
+pyotp==2.9.0
+loguru==0.7.3
+click==8.1.8
+
+# Data compression - EXACT versions
+lz4==4.4.1
+zstd==0.23.2
+msgpack==1.1.0
+
+# HTTP/Web - EXACT versions
+httpx==0.29.1
+h11==0.18.0
+h2==4.1.0
+httptools==0.6.6
+watchfiles==1.0.4
+
+# Testing - EXACT versions
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+hypothesis==6.125.2
+
+# Monitoring - EXACT versions
+prometheus-client==0.21.1
+
+# Data visualization - EXACT versions
+matplotlib==3.10.0
+plotly==5.24.1
+seaborn==0.13.2
+
+# Statistical analysis - EXACT versions
+statsmodels==0.14.4
+
+# Excel support - EXACT versions
+openpyxl==3.1.5
+xlrd==2.0.1
+xlsxwriter==3.2.2
+
+# Additional packages found in local environment
+pandas-stubs==2.3.2.250926
+typing_extensions==4.12.2
+typing_inspection==0.9.0
+tzlocal==5.2
+frozenlist==1.5.0
+multidict==6.1.0
+yarl==1.18.3
+idna==3.10
+charset_normalizer==3.4.1
+markupsafe==3.0.2
+jinja2==3.1.5
+colorama==0.4.6
+packaging==24.2
+pygments==2.19.1
+pyproject_hooks==1.2.0
+build==1.2.2
+toml==0.10.2
+tomli==2.2.1
+cachecontrol==0.14.1
+distro==1.9.0
+pluggy==1.5.0
+iniconfig==2.0.0
+webencodings==0.5.1
+jsonschema==4.23.0
+jsonschema-specifications==2024.10.1
+referencing==0.35.1
+rpds-py==0.22.3
+filelock==3.17.0
+virtualenv==20.29.1
+setuptools-scm==8.1.0
+platformdirs==4.3.6
+pyproject-api==1.9.0
+tomli-w==1.1.0
+pathspec==0.12.1
+shellingham==1.5.4
+typer==0.15.1
+rich==13.9.4
+textual==0.86.3
+aiofiles==24.1.0
+uvloop==0.21.0
+gunicorn==23.0.0
+tornado==6.4.2
+wsproto==1.2.0
+outcome==1.3.0.post0
+trio==0.29.0
+pybreaker==0.13.0
+msgspec==0.18.6
+orjson==3.10.15
+pydantic==2.10.6
+annotated-types==0.7.0
+email-validator==2.2.0
+dnspython==2.7.0
+six==1.17.0
+python-dateutil==2.9.0.post0
+pytz==2024.2
+defusedxml==0.7.1
+oauthlib==3.2.2
+requests-oauthlib==2.0.0
+requests-toolbelt==1.0.0
+jmespath==1.0.1
+botocore==1.36.26
+s3transfer==0.11.2
+python-jose[cryptography]==3.3.0
+ecdsa==0.19.0
+rsa==4.9
+blake2==0.3.0
+cryptography==44.0.2
+bcrypt==4.2.1
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+supabase==2.16.0
+postgrest==0.18.0
+realtime==0.0.9
+storage3==0.10.0
+gotrue==2.16.0
+httpx==0.29.1
+respx==0.21.1
+
+# System dependencies (install with apt/yum):
+# sudo apt-get install -y build-essential libta-lib-dev
+# sudo apt-get install -y python3-dev python3-pip
+# sudo apt-get install -y libssl-dev libffi-dev
+# sudo apt-get install -y libhdf5-dev libpng-dev libfreetype6-dev
+
+# NOTE: This file contains ALL dependencies found in the codebase
+# Use: pip install -r complete_requirements.txt
+# For faster install: pip install --only-binary=all -r complete_requirements.txt

@@ -1,82 +1,43 @@
-#!/usr/bin/env python3
 """
-ClickHouse Configuration for Live Trading Engine
+ClickHouse Configuration
 """
-
 import os
-from typing import Dict, Any
+from dataclasses import dataclass
+from typing import Optional
 
-
+@dataclass
 class ClickHouseConfig:
-    """ClickHouse database configuration."""
-    
-    # Connection settings - Using localhost
-    HOST = os.getenv('CLICKHOUSE_HOST', 'localhost')
-    USER = os.getenv('CLICKHOUSE_USER', 'default')
-    PASSWORD = os.getenv('CLICKHOUSE_PASSWORD', '')
-    SECURE = os.getenv('CLICKHOUSE_SECURE', 'false').lower() == 'true'
-    DATABASE = os.getenv('CLICKHOUSE_DATABASE', 'default')
-    
-    # Table settings
-    TABLE_NAME = os.getenv('CLICKHOUSE_TABLE', 'nse_ticks_stocks')
-    
-    # Query settings
-    BATCH_SIZE = int(os.getenv('CLICKHOUSE_BATCH_SIZE', '10000'))
-    QUERY_TIMEOUT = int(os.getenv('CLICKHOUSE_QUERY_TIMEOUT', '300'))  # seconds
-    
-    # Market hours (IST)
-    MARKET_OPEN_TIME = '09:15:00'
-    MARKET_CLOSE_TIME = '15:30:00'
+    """ClickHouse database configuration"""
+    host: str = 'localhost'
+    port: int = 8123
+    user: str = 'default'
+    password: str = ''
+    database: str = 'tradelayout'
     
     @classmethod
-    def get_connection_config(cls) -> Dict[str, Any]:
-        """Get ClickHouse connection configuration."""
-        return {
-            'host': cls.HOST,
-            'user': cls.USER,
-            'password': cls.PASSWORD,
-            'secure': cls.SECURE,
-            'database': cls.DATABASE
-        }
+    def from_env(cls) -> 'ClickHouseConfig':
+        """Create configuration from environment variables"""
+        return cls(
+            host=os.getenv('CLICKHOUSE_HOST', 'localhost'),
+            port=int(os.getenv('CLICKHOUSE_PORT', '8123')),
+            user=os.getenv('CLICKHOUSE_USER', 'tradelayout'),
+            password=os.getenv('CLICKHOUSE_PASSWORD', ''),
+            database=os.getenv('CLICKHOUSE_DATABASE', 'tradelayout')
+        )
     
-    @classmethod
-    def get_table_config(cls) -> Dict[str, Any]:
-        """Get ClickHouse table configuration."""
-        return {
-            'table': cls.TABLE_NAME,
-            'batch_size': cls.BATCH_SIZE,
-            'query_timeout': cls.QUERY_TIMEOUT
-        }
+    @property
+    def connection_url(self) -> str:
+        """Get ClickHouse connection URL"""
+        if self.password:
+            return f"clickhouse://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        return f"clickhouse://{self.user}@{self.host}:{self.port}/{self.database}"
     
-    @classmethod
-    def get_market_hours_config(cls) -> Dict[str, str]:
-        """Get market hours configuration."""
-        return {
-            'open_time': cls.MARKET_OPEN_TIME,
-            'close_time': cls.MARKET_CLOSE_TIME
-        }
-    
-    @classmethod
-    def validate_config(cls) -> bool:
-        """Validate ClickHouse configuration."""
-        required_fields = ['HOST', 'USER', 'PASSWORD', 'TABLE_NAME']
-        
-        for field in required_fields:
-            if not getattr(cls, field):
-                print(f"Error: Missing required ClickHouse configuration: {field}")
-                return False
-        
-        return True
-
+    @property
+    def http_url(self) -> str:
+        """Get ClickHouse HTTP URL"""
+        if self.password:
+            return f"http://{self.user}:{self.password}@{self.host}:{self.port}"
+        return f"http://{self.host}:{self.port}"
 
 # Default configuration instance
-clickhouse_config = ClickHouseConfig()
-
-# Also provide the dict format for the centralized client factory
-CLICKHOUSE_CONFIG = {
-    "host": os.getenv("CLICKHOUSE_HOST", "localhost"),
-    "port": int(os.getenv("CLICKHOUSE_PORT", "8123")),
-    "username": os.getenv("CLICKHOUSE_USER", "tradelayout"),
-    "password": os.getenv("CLICKHOUSE_PASSWORD", "Unificater123*"),
-    "database": os.getenv("CLICKHOUSE_DATABASE", "tradelayout"),
-}
+default_config = ClickHouseConfig.from_env()

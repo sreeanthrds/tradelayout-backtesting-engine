@@ -1071,10 +1071,12 @@ class DataManager:
             
             # Get trading day
             trading_day = current_timestamp.strftime('%Y-%m-%d')
-            timestamp_str = current_timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            # Convert datetime to Unix timestamp for comparison
+            timestamp_unix = int(current_timestamp.timestamp())
             
             # Load ALL option ticks from current_timestamp onwards
             # Note: ticker column includes .NFO suffix
+            # timestamp is stored as UInt32 (Unix timestamp in seconds)
             query = f"""
                 SELECT 
                     ticker,
@@ -1085,7 +1087,7 @@ class DataManager:
                 FROM nse_ticks_options
                 WHERE trading_day = '{trading_day}'
                   AND ticker = '{ch_symbol_with_nfo}'
-                  AND timestamp >= '{timestamp_str}'
+                  AND timestamp >= {timestamp_unix}
                 ORDER BY timestamp ASC
             """
             
@@ -1486,6 +1488,13 @@ class DataManager:
 
         symbol_list = ','.join(f"'{s}'" for s in symbols)
 
+        # Convert time strings to Unix timestamps for comparison
+        from datetime import datetime
+        start_time = datetime.strptime(f'{trading_day} 09:15:00', '%Y-%m-%d %H:%M:%S')
+        end_time = datetime.strptime(f'{trading_day} 15:30:00', '%Y-%m-%d %H:%M:%S')
+        start_timestamp = int(start_time.timestamp())
+        end_timestamp = int(end_time.timestamp())
+        
         query = f"""
             SELECT 
                 symbol,
@@ -1495,8 +1504,8 @@ class DataManager:
                 oi
             FROM nse_ticks_indices
             WHERE trading_day = '{trading_day}'
-              AND timestamp >= '{trading_day} 09:15:00'
-              AND timestamp <= '{trading_day} 15:30:00'
+              AND timestamp >= {start_timestamp}
+              AND timestamp <= {end_timestamp}
               AND symbol IN ({symbol_list})
             ORDER BY timestamp ASC
         """
@@ -1541,6 +1550,13 @@ class DataManager:
 
         symbol_list = ','.join(f"'{s}'" for s in symbols)
 
+        # Convert time strings to Unix timestamps for comparison
+        from datetime import datetime
+        start_time = datetime.strptime(f'{trading_day} 09:15:00', '%Y-%m-%d %H:%M:%S')
+        end_time = datetime.strptime(f'{trading_day} 15:30:00', '%Y-%m-%d %H:%M:%S')
+        start_timestamp = int(start_time.timestamp())
+        end_timestamp = int(end_time.timestamp())
+        
         # Aggregate in ClickHouse - MUCH faster than Python!
         # Use groupArray to collect all ltps, then pick first/last for open/close
         # Truncate timestamp to seconds manually (compatible with all ClickHouse versions)
@@ -1556,8 +1572,8 @@ class DataManager:
                 groupArray(oi)[-1] as oi               -- Last OI in second
             FROM nse_ticks_indices
             WHERE trading_day = '{trading_day}'
-              AND timestamp >= '{trading_day} 09:15:00'
-              AND timestamp <= '{trading_day} 15:30:00'
+              AND timestamp >= {start_timestamp}
+              AND timestamp <= {end_timestamp}
               AND symbol IN ({symbol_list})
             GROUP BY symbol, toDateTime(toInt64(timestamp))
             ORDER BY second ASC

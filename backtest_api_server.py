@@ -1656,7 +1656,7 @@ async def start_backtest(request: BacktestStartRequest):
         "backtest_id": "strategy_id_start_end",
         "total_days": 8,
         "status": "ready",
-        "stream_url": "/api/v1/backtest/{id}/stream"
+        "stream_url": "/api/v1/backtest/{id}/status"
     }
     """
     try:
@@ -1692,7 +1692,7 @@ async def start_backtest(request: BacktestStartRequest):
             "backtest_id": backtest_id,
             "total_days": total_days,
             "status": "ready",
-            "stream_url": f"/api/v1/backtest/{backtest_id}/stream"
+            "stream_url": f"/api/v1/backtest/{backtest_id}/status"
         }
         
     except HTTPException:

@@ -1392,7 +1392,7 @@ async def stream_backtest(request: BacktestRequest):
 async def get_backtest_status():
     """Get status of backtest service"""
     return {
-        "status": "ready",
+        "status": "starting",
         "available_modes": ["backtesting", "live_simulation"],
         "features": {
             "single_day": True,
@@ -1655,7 +1655,7 @@ async def start_backtest(request: BacktestStartRequest):
     {
         "backtest_id": "strategy_id_start_end",
         "total_days": 8,
-        "status": "ready",
+        "status": "starting",
         "stream_url": "/api/v1/backtest/{id}/status"
     }
     """
@@ -1691,7 +1691,7 @@ async def start_backtest(request: BacktestStartRequest):
         return {
             "backtest_id": backtest_id,
             "total_days": total_days,
-            "status": "ready",
+            "status": "starting",
             "stream_url": f"/api/v1/backtest/{backtest_id}/status"
         }
         

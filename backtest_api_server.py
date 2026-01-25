@@ -26,9 +26,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Set ClickHouse environment variables for centralized client factory
 os.environ["CLICKHOUSE_HOST"] = os.getenv("CLICKHOUSE_HOST", "localhost")
 os.environ["CLICKHOUSE_PORT"] = os.getenv("CLICKHOUSE_PORT", "8123")
-os.environ["CLICKHOUSE_USER"] = os.getenv("CLICKHOUSE_USER", "tradelayout")
-os.environ["CLICKHOUSE_PASSWORD"] = os.getenv("CLICKHOUSE_PASSWORD", "Unificater123*")
-os.environ["CLICKHOUSE_DATABASE"] = os.getenv("CLICKHOUSE_DATABASE", "tradelayout")
+os.environ["CLICKHOUSE_USER"] = os.getenv("CLICKHOUSE_USER", "default")
+os.environ["CLICKHOUSE_PASSWORD"] = os.getenv("CLICKHOUSE_PASSWORD", "")
+os.environ["CLICKHOUSE_DATABASE"] = os.getenv("CLICKHOUSE_DATABASE", "default")
 
 print("🔧 ClickHouse environment variables set:")
 print(f"   Host: {os.environ['CLICKHOUSE_HOST']}")
@@ -184,13 +184,18 @@ def map_position_to_trade(pos: dict, diagnostics: dict) -> dict:
 
 def save_daily_files(strategy_id: str, date_str: str, daily_data: dict):
     """
-    Save trades_daily.json.gz and diagnostics_export.json.gz
-    to backtest_results/{strategy_id}/{date}/
+    Save trades_daily.json.gz, diagnostics_export.json.gz
+    and update summary.jsonl for tracking completed days.
+    
+    Files created:
+    - trades_daily.json.gz (full trades data)
+    - diagnostics_export.json.gz (diagnostics data)
+    - summary.jsonl (appends line for this day with summary)
     """
     dir_path = get_day_dir(strategy_id, date_str)
     os.makedirs(dir_path, exist_ok=True)
     
-    # trades_daily.json
+    # trades_daily.json (full data)
     trades_data = {
         'date': date_str,
         'summary': {
@@ -217,7 +222,29 @@ def save_daily_files(strategy_id: str, date_str: str, daily_data: dict):
     with gzip.open(f"{dir_path}/diagnostics_export.json.gz", 'wt', encoding='utf-8') as f:
         json.dump(diagnostics_data, f, indent=2, cls=DateTimeEncoder)
     
+    # Update summary.jsonl (append this day's summary)
+    # JSONL file is at the backtest ID level, same level as day folders
+    backtest_dir = os.path.dirname(dir_path)  # Goes up one level from day folder to backtest ID folder
+    summary_jsonl_path = os.path.join(backtest_dir, "summary.jsonl")
+    
+    # Create summary entry for JSONL
+    summary_entry = {
+        "date": date_str,
+        "summary": {
+            "total_trades": daily_data['summary']['total_positions'],
+            "total_pnl": f"{daily_data['summary']['total_pnl']:.2f}",
+            "winning_trades": daily_data['summary']['winning_trades'],
+            "losing_trades": daily_data['summary']['losing_trades'],
+            "win_rate": f"{daily_data['summary']['win_rate']:.2f}"
+        }
+    }
+    
+    with open(summary_jsonl_path, 'a', encoding='utf-8') as f:
+        json.dump(summary_entry, f)
+        f.write('\n')  # Newline for JSONL format
+    
     print(f"[API] Saved files for {date_str} to {dir_path}")
+    print(f"[API] Updated summary.jsonl at {summary_jsonl_path} with {date_str}")
 
 # ============================================================================
 # UI FILES GENERATION (Legacy)
@@ -296,14 +323,64 @@ async def bypass_ngrok_warning(request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins (including lovable.app and ngrok)
-    allow_credentials=False,  # Must be False when using wildcard origins
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"]
+    allow_credentials=True,  # Allow credentials for development
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicit methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],
+    max_age=600  # Cache preflight requests for 10 minutes
 )
 
 # Add GZip compression middleware (reduces JSON size by 70-80%)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Security middleware - DISABLED for production (too aggressive)
+# Uncomment for development/testing only
+"""
+from collections import defaultdict
+from time import time
+from fastapi import Request, HTTPException
+
+# Simple in-memory rate limiter and IP blocker
+rate_limiter = defaultdict(list)
+blocked_ips = set()
+suspicious_paths = {"/.env", "/actuator", "/admin", "/config", ".git"}
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    '''Security middleware with rate limiting and IP blocking'''
+    client_ip = request.client.host
+    current_time = time()
+    
+    # Block suspicious IPs
+    if client_ip in blocked_ips:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Detect and block suspicious path access
+    if any(request.url.path.startswith(path) for path in suspicious_paths):
+        blocked_ips.add(client_ip)
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Clean old requests (older than 1 minute)
+    rate_limiter[client_ip] = [req_time for req_time in rate_limiter[client_ip] if current_time - req_time < 60]
+    
+    # Check rate limit (100 requests per minute per IP)
+    if len(rate_limiter[client_ip]) > 100:
+        blocked_ips.add(client_ip)
+        raise HTTPException(status_code=429, detail="Too many requests")
+    
+    # Add current request
+    rate_limiter[client_ip].append(current_time)
+    
+    response = await call_next(request)
+    
+    # Add security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    return response
+"""
 
 # Request/Response Models
 class BacktestRequest(BaseModel):
@@ -755,15 +832,10 @@ def generate_diagnostic_text(pos: Dict[str, Any], pos_num: int, txn_num: int) ->
 
 @app.get("/")
 async def root():
-    """Root endpoint - API information"""
+    """Root endpoint - Limited information for security"""
     return {
-        "service": "TradeLayout Backtest API",
-        "version": "1.0.0",
-        "endpoints": {
-            "/health": "Health check",
-            "/api/v1/backtest": "Run backtest (POST)",
-            "/api/v1/backtest/status": "Get backtest status (GET)"
-        }
+        "message": "TradeLayout Backtest API",
+        "status": "running"
     }
 
 @app.get("/health")
@@ -1392,7 +1464,7 @@ async def stream_backtest(request: BacktestRequest):
 async def get_backtest_status():
     """Get status of backtest service"""
     return {
-        "status": "starting",
+        "status": "ready",
         "available_modes": ["backtesting", "live_simulation"],
         "features": {
             "single_day": True,
@@ -1404,6 +1476,136 @@ async def get_backtest_status():
             "ui_files_generation": True
         }
     }
+
+
+@app.get("/api/v1/backtest/{backtest_id}/status")
+async def get_specific_backtest_status(backtest_id: str):
+    """
+    Get status of a specific backtest for polling.
+    Simply reads summary.jsonl to check completion status.
+    """
+    import os
+    import json
+    from datetime import datetime, timedelta
+    
+    # Parse backtest_id to extract strategy info
+    parts = backtest_id.rsplit('_', 2)
+    if len(parts) != 3:
+        raise HTTPException(status_code=400, detail="Invalid backtest_id format")
+    
+    strategy_id, start_date, end_date = parts
+    
+    # Get backtest results directory - use strategy_id part for now
+    try:
+        # Extract strategy_id from backtest_id (first part before first underscore)
+        strategy_id_only = backtest_id.split('_')[0]
+        results_dir = os.path.join("backtest_results", strategy_id_only)
+    except Exception:
+        # Fallback to simple directory construction
+        results_dir = os.path.join("backtest_results", backtest_id.replace(":", "_"))
+    
+    # Calculate total days
+    start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+    end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+    total_days = (end_date_obj - start_date_obj).days + 1
+    
+    # Check summary.jsonl for completed days
+    summary_jsonl_path = os.path.join(results_dir, "summary.jsonl")
+    completed_days = []
+    
+    if os.path.exists(results_dir) and os.path.exists(summary_jsonl_path):
+        try:
+            with open(summary_jsonl_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        summary_entry = json.loads(line)
+                        completed_days.append(summary_entry)
+        except Exception as e:
+            print(f"Error reading summary.jsonl: {e}")
+    
+    completed_days_count = len(completed_days)
+    
+    # Build daily_results from completed days
+    daily_results = {}
+    for summary_entry in completed_days:
+        date_str = summary_entry["date"]
+        daily_results[date_str] = {
+            "date": date_str,
+            "day_number": len(daily_results) + 1,
+            "total_days": total_days,
+            "summary": summary_entry["summary"],
+            "has_detail_data": True,
+            "status": "completed"
+        }
+    
+    # Add remaining days as running
+    current_date = start_date_obj
+    while current_date <= end_date_obj:
+        date_str = current_date.strftime('%Y-%m-%d')
+        if date_str not in daily_results:
+            daily_results[date_str] = {
+                "date": date_str,
+                "day_number": len(daily_results) + 1,
+                "total_days": total_days,
+                "summary": {
+                    "total_trades": 0,
+                    "total_pnl": "0.00",
+                    "winning_trades": 0,
+                    "losing_trades": 0,
+                    "win_rate": "0.00"
+                },
+                "has_detail_data": False,
+                "status": "running"
+            }
+        current_date += timedelta(days=1)
+    
+    # Calculate overall summary
+    overall_summary = None
+    if completed_days_count > 0:
+        total_trades = sum(day["summary"]["total_trades"] for day in daily_results.values())
+        total_pnl = sum(float(day["summary"]["total_pnl"]) for day in daily_results.values())
+        avg_win_rate = sum(float(day["summary"]["win_rate"]) for day in daily_results.values()) / len(daily_results)
+        
+        overall_summary = {
+            "total_days": completed_days_count,
+            "total_trades": total_trades,
+            "total_pnl": str(round(total_pnl, 2)),
+            "win_rate": str(round(avg_win_rate, 1))
+        }
+    
+    # Determine status and current day
+    current_day = None
+    
+    # Find current running day (first incomplete day)
+    for date_str, day_data in daily_results.items():
+        if day_data["status"] == "running":
+            current_day = date_str
+            break
+    
+    # COMPLETION LOGIC: Check if all days are completed
+    if completed_days_count == total_days and total_days > 0:
+        status = "completed"
+        current_day = None  # No current day when completed
+    elif current_day:
+        status = "running"
+    else:
+        status = "starting"
+        current_day = start_date  # Show first day as current
+    
+    return {
+        "backtest_id": backtest_id,
+        "strategy_id": strategy_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "status": status,
+        "current_day": current_day,
+        "completed_days": completed_days_count,
+        "total_days": total_days,
+        "daily_results": daily_results,  # Keep as plain object - UI will convert to Map
+        "overall_summary": overall_summary
+    }
+
 
 # ============================================================================
 # LIVE SIMULATION ENDPOINTS
@@ -1645,11 +1847,56 @@ class BacktestStartRequest(BaseModel):
     slippage_percentage: Optional[float] = Field(0.05, description="Slippage percentage")
     commission_percentage: Optional[float] = Field(0.01, description="Commission percentage")
 
+def cleanup_backtest_data(strategy_id: str):
+    """
+    Clean up all existing backtest data for a strategy before starting new backtest.
+    Deletes all day folders, .gz files, and resets summary.jsonl.
+    """
+    import shutil
+    import glob
+    
+    strategy_dir = f"backtest_results/{strategy_id}"
+    
+    if os.path.exists(strategy_dir):
+        print(f"[API] Cleaning up existing data for strategy {strategy_id}")
+        
+        # Delete all day folders (date directories)
+        date_folders = glob.glob(os.path.join(strategy_dir, "20*"))  # Match date folders like 2024-10-*
+        for folder in date_folders:
+            if os.path.isdir(folder):
+                try:
+                    shutil.rmtree(folder)
+                    print(f"[API] Deleted folder: {folder}")
+                except Exception as e:
+                    print(f"[API WARNING] Failed to delete folder {folder}: {e}")
+        
+        # Reset summary.jsonl (delete and create empty)
+        summary_file = os.path.join(strategy_dir, "summary.jsonl")
+        try:
+            if os.path.exists(summary_file):
+                os.remove(summary_file)
+                print(f"[API] Deleted old summary.jsonl")
+            
+            # Create empty summary.jsonl
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                pass  # Create empty file
+            print(f"[API] Created fresh summary.jsonl")
+            
+        except Exception as e:
+            print(f"[API WARNING] Failed to reset summary.jsonl: {e}")
+        
+        print(f"[API] Cleanup completed for strategy {strategy_id}")
+    else:
+        # Create directory if it doesn't exist
+        os.makedirs(strategy_dir, exist_ok=True)
+        print(f"[API] Created new directory for strategy {strategy_id}")
+
+
 @app.post("/api/v1/backtest/start")
 async def start_backtest(request: BacktestStartRequest):
     """
-    Start a backtest and return backtest_id immediately.
-    Use the stream endpoint to monitor progress.
+    Start a backtest and run it in the background.
+    Returns backtest_id immediately for polling.
     
     Returns:
     {
@@ -1687,6 +1934,147 @@ async def start_backtest(request: BacktestStartRequest):
         )
         
         print(f"[API] Backtest started: {backtest_id} ({total_days} days)")
+        
+        # Clean up existing data before starting new backtest
+        cleanup_backtest_data(request.strategy_id)
+        
+        # Start backtest in background task
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        def run_backtest_background():
+            """Run the actual backtest processing in background"""
+            try:
+                # Create results directory
+                from src.backtesting.backtest_runner import get_backtest_results_dir
+                results_dir = get_backtest_results_dir(backtest_id)
+                os.makedirs(results_dir, exist_ok=True)
+                
+                # Overall tracking
+                overall_summary = {
+                    'total_positions': 0,
+                    'total_pnl': 0,
+                    'total_winning_trades': 0,
+                    'total_losing_trades': 0,
+                    'total_breakeven_trades': 0,
+                    'largest_win': 0,
+                    'largest_loss': 0,
+                    'days_tested': total_days
+                }
+                
+                # Process each day
+                for idx, test_date in enumerate(date_range, 1):
+                    print(f"[API] Processing day {idx}/{total_days}: {test_date}")
+                    
+                    try:
+                        # Run backtest for this day
+                        daily_data = run_dashboard_backtest(request.strategy_id, test_date)
+                        
+                        # Save files to disk (includes summary.jsonl update)
+                        try:
+                            save_daily_files(request.strategy_id, test_date.strftime('%Y-%m-%d'), daily_data)
+                        except Exception as save_error:
+                            print(f"[API WARNING] Failed to save files for {test_date}: {str(save_error)}")
+                            import traceback
+                            traceback.print_exc()
+                        
+                        # Update overall summary
+                        overall_summary['total_positions'] += daily_data['summary']['total_positions']
+                        overall_summary['total_pnl'] += daily_data['summary']['total_pnl']
+                        overall_summary['total_winning_trades'] += daily_data['summary']['winning_trades']
+                        overall_summary['total_losing_trades'] += daily_data['summary']['losing_trades']
+                        overall_summary['total_breakeven_trades'] += daily_data['summary']['breakeven_trades']
+                        overall_summary['largest_win'] = max(overall_summary['largest_win'], daily_data['summary']['largest_win'])
+                        overall_summary['largest_loss'] = min(overall_summary['largest_loss'], daily_data['summary']['largest_loss'])
+                        
+                    except Exception as e:
+                        print(f"[API ERROR] Failed to process day {test_date}: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                
+                print(f"[API] Backtest completed: {backtest_id}")
+                
+            except Exception as e:
+                print(f"[API ERROR] Background backtest failed: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Run in background thread (non-blocking)
+        import threading
+        import traceback
+        
+        def run_backtest_background():
+            """Run the actual backtest processing in background"""
+            try:
+                print(f"[API] Background thread started for {backtest_id}")
+                
+                # Create results directory
+                try:
+                    from src.backtesting.backtest_runner import get_backtest_results_dir
+                    results_dir = get_backtest_results_dir(backtest_id)
+                    os.makedirs(results_dir, exist_ok=True)
+                    print(f"[API] Results directory created: {results_dir}")
+                except Exception as e:
+                    print(f"[API ERROR] Failed to create results directory: {e}")
+                    # Fallback: use strategy_id directory
+                    strategy_id_only = backtest_id.split('_')[0]
+                    results_dir = os.path.join("backtest_results", strategy_id_only)
+                    os.makedirs(results_dir, exist_ok=True)
+                    print(f"[API] Using fallback directory: {results_dir}")
+                
+                # Overall tracking
+                overall_summary = {
+                    'total_positions': 0,
+                    'total_pnl': 0,
+                    'total_winning_trades': 0,
+                    'total_losing_trades': 0,
+                    'total_breakeven_trades': 0,
+                    'largest_win': 0,
+                    'largest_loss': 0,
+                    'days_tested': total_days
+                }
+                
+                # Process each day
+                for idx, test_date in enumerate(date_range, 1):
+                    print(f"[API] Processing day {idx}/{total_days}: {test_date}")
+                    
+                    try:
+                        # Run backtest for this day
+                        print(f"[API] Running backtest for {request.strategy_id} on {test_date}")
+                        daily_data = run_dashboard_backtest(request.strategy_id, test_date)
+                        print(f"[API] Backtest completed for {test_date}, positions: {daily_data['summary']['total_positions']}")
+                        
+                        # Save files to disk (includes summary.jsonl update)
+                        try:
+                            print(f"[API] Saving files for {test_date}")
+                            save_daily_files(request.strategy_id, test_date.strftime('%Y-%m-%d'), daily_data)
+                            print(f"[API] Files saved for {test_date}")
+                        except Exception as save_error:
+                            print(f"[API WARNING] Failed to save files for {test_date}: {str(save_error)}")
+                            traceback.print_exc()
+                        
+                        # Update overall summary
+                        overall_summary['total_positions'] += daily_data['summary']['total_positions']
+                        overall_summary['total_pnl'] += daily_data['summary']['total_pnl']
+                        overall_summary['total_winning_trades'] += daily_data['summary']['winning_trades']
+                        overall_summary['total_losing_trades'] += daily_data['summary']['losing_trades']
+                        overall_summary['total_breakeven_trades'] += daily_data['summary']['breakeven_trades']
+                        overall_summary['largest_win'] = max(overall_summary['largest_win'], daily_data['summary']['largest_win'])
+                        overall_summary['largest_loss'] = min(overall_summary['largest_loss'], daily_data['summary']['largest_loss'])
+                        
+                    except Exception as e:
+                        print(f"[API ERROR] Failed to process day {test_date}: {str(e)}")
+                        traceback.print_exc()
+                
+                print(f"[API] Backtest completed: {backtest_id}")
+                
+            except Exception as e:
+                print(f"[API ERROR] Background backtest failed: {str(e)}")
+                traceback.print_exc()
+        
+        background_thread = threading.Thread(target=run_backtest_background, daemon=True)
+        background_thread.start()
+        print(f"[API] Background thread started for backtest {backtest_id}")
         
         return {
             "backtest_id": backtest_id,
@@ -1757,8 +2145,7 @@ async def stream_backtest_progress(backtest_id: str):
                 
                 print(f"[API] Processing day {idx}/{total_days}: {test_date}")
                 
-                # try:
-                if True:
+                try:
                     # Run backtest for this day
                     daily_data = run_dashboard_backtest(strategy_id, test_date)
                     
@@ -1797,15 +2184,15 @@ async def stream_backtest_progress(backtest_id: str):
                         })
                     }
                     
-                # except Exception as day_error:
-                #     print(f"[API ERROR] Day {test_date} failed: {str(day_error)}")
-                #     yield {
-                #         "event": "error",
-                #         "data": json.dumps({
-                #             "date": test_date.strftime('%Y-%m-%d'),
-                #             "error": str(day_error)
-                #         })
-                #     }
+                except Exception as day_error:
+                    print(f"[API ERROR] Day {test_date} failed: {str(day_error)}")
+                    yield {
+                        "event": "error",
+                        "data": json.dumps({
+                            "date": test_date.strftime('%Y-%m-%d'),
+                            "error": str(day_error)
+                        })
+                    }
                 
                 await asyncio.sleep(0)
             
@@ -1914,9 +2301,9 @@ if __name__ == "__main__":
     print("="*80)
     print("🚀 Starting TradeLayout Backtest API Server")
     print("="*80)
-    print("Server will be available at: http://localhost:8000")
-    print("API Documentation: http://localhost:8000/docs")
-    print("Health Check: http://localhost:8000/health")
+    print("Server will be available at: http://localhost:8003")
+    print("API Documentation: http://localhost:8003/docs")
+    print("Health Check: http://localhost:8003/health")
     print("="*80)
     
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8003, log_level="info")

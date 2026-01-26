@@ -1938,67 +1938,6 @@ async def start_backtest(request: BacktestStartRequest):
         # Clean up existing data before starting new backtest
         cleanup_backtest_data(request.strategy_id)
         
-        # Start backtest in background task
-        import asyncio
-        from concurrent.futures import ThreadPoolExecutor
-        
-        def run_backtest_background():
-            """Run the actual backtest processing in background"""
-            try:
-                # Create results directory
-                from src.backtesting.backtest_runner import get_backtest_results_dir
-                results_dir = get_backtest_results_dir(backtest_id)
-                os.makedirs(results_dir, exist_ok=True)
-                
-                # Overall tracking
-                overall_summary = {
-                    'total_positions': 0,
-                    'total_pnl': 0,
-                    'total_winning_trades': 0,
-                    'total_losing_trades': 0,
-                    'total_breakeven_trades': 0,
-                    'largest_win': 0,
-                    'largest_loss': 0,
-                    'days_tested': total_days
-                }
-                
-                # Process each day
-                for idx, test_date in enumerate(date_range, 1):
-                    print(f"[API] Processing day {idx}/{total_days}: {test_date}")
-                    
-                    try:
-                        # Run backtest for this day
-                        daily_data = run_dashboard_backtest(request.strategy_id, test_date)
-                        
-                        # Save files to disk (includes summary.jsonl update)
-                        try:
-                            save_daily_files(request.strategy_id, test_date.strftime('%Y-%m-%d'), daily_data)
-                        except Exception as save_error:
-                            print(f"[API WARNING] Failed to save files for {test_date}: {str(save_error)}")
-                            import traceback
-                            traceback.print_exc()
-                        
-                        # Update overall summary
-                        overall_summary['total_positions'] += daily_data['summary']['total_positions']
-                        overall_summary['total_pnl'] += daily_data['summary']['total_pnl']
-                        overall_summary['total_winning_trades'] += daily_data['summary']['winning_trades']
-                        overall_summary['total_losing_trades'] += daily_data['summary']['losing_trades']
-                        overall_summary['total_breakeven_trades'] += daily_data['summary']['breakeven_trades']
-                        overall_summary['largest_win'] = max(overall_summary['largest_win'], daily_data['summary']['largest_win'])
-                        overall_summary['largest_loss'] = min(overall_summary['largest_loss'], daily_data['summary']['largest_loss'])
-                        
-                    except Exception as e:
-                        print(f"[API ERROR] Failed to process day {test_date}: {str(e)}")
-                        import traceback
-                        traceback.print_exc()
-                
-                print(f"[API] Backtest completed: {backtest_id}")
-                
-            except Exception as e:
-                print(f"[API ERROR] Background backtest failed: {str(e)}")
-                import traceback
-                traceback.print_exc()
-        
         # Run in background thread (non-blocking)
         import threading
         import traceback
@@ -2008,10 +1947,9 @@ async def start_backtest(request: BacktestStartRequest):
             try:
                 print(f"[API] Background thread started for {backtest_id}")
                 
-                # Create results directory
+                # Create results directory using existing function
                 try:
-                    from src.backtesting.backtest_runner import get_backtest_results_dir
-                    results_dir = get_backtest_results_dir(backtest_id)
+                    results_dir = get_backtest_dir(request.strategy_id)
                     os.makedirs(results_dir, exist_ok=True)
                     print(f"[API] Results directory created: {results_dir}")
                 except Exception as e:

@@ -1,0 +1,24 @@
+{
+  "timestamp": "2024-10-01 09:16:59",
+  "entry_executed": true,
+  "spot_ltp": 25898.3,
+  "ltp": {
+    "NIFTY": 25898.3,
+    "NIFTY:2024-10-03:OPT:25900:CE": 150.5
+  },
+  "candle_buffers": {
+    "NIFTY:1m": 1,
+    "NIFTY:5m": 20,
+    "NIFTY:3m": 20
+  },
+  "option_contracts_loaded": [
+    "NIFTY:2024-10-03:OPT:25900:CE"
+  ],
+  "entry_details": {
+    "entry_time": "2024-10-01 09:16:59",
+    "pattern": "TI:W0:ATM:CE",
+    "resolved_contract": "NIFTY:2024-10-03:OPT:25900:CE",
+    "entry_price": 150.5,
+    "spot_price_at_entry": 25898.3
+  }
+}

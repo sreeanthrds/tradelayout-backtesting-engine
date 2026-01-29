@@ -1,0 +1,190 @@
+{
+    "category": "Trend Indicators",
+    "indicators": [
+        {
+            "name": "ADX",
+            "function_name": "adx",
+            "display_name": "Average Directional Index",
+            "description": "Measures trend strength",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["ADX"]
+        },
+        {
+            "name": "DM",
+            "function_name": "dm",
+            "display_name": "Directional Movement",
+            "description": "Directional movement indicators",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["DMP", "DMN"]
+        },
+        {
+            "name": "SUPERTREND",
+            "function_name": "supertrend",
+            "display_name": "SuperTrend",
+            "description": "Trend-following indicator based on ATR",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "ATR Length",
+                    "default": 10,
+                    "description": "ATR period"
+                },
+                {
+                    "name": "multiplier",
+                    "type": "number",
+                    "label": "Multiplier",
+                    "default": 3,
+                    "description": "ATR multiplier"
+                }
+            ],
+            "outputs": ["SUPERT", "SUPERTd", "SUPERTl", "SUPERTs"]
+        },
+        {
+            "name": "AROON",
+            "function_name": "aroon",
+            "display_name": "Aroon",
+            "description": "Identifies trend changes and strength",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["AROOND", "AROONU", "AROONOSC"]
+        },
+        {
+            "name": "SUPPORT_RESISTANCE",
+            "function_name": "support_resistance",
+            "display_name": "Support & Resistance",
+            "description": "Dynamic support and resistance levels",
+            "parameters": [
+                {
+                    "name": "left_bars",
+                    "type": "number",
+                    "label": "Left Bars",
+                    "default": 15,
+                    "description": "Left bars for pivot detection"
+                },
+                {
+                    "name": "right_bars",
+                    "type": "number",
+                    "label": "Right Bars",
+                    "default": 15,
+                    "description": "Right bars for pivot detection"
+                },
+                {
+                    "name": "max_levels",
+                    "type": "number",
+                    "label": "Max Levels",
+                    "default": 10,
+                    "description": "Maximum number of levels to track"
+                },
+                {
+                    "name": "min_strength",
+                    "type": "number",
+                    "label": "Min Strength",
+                    "default": 2,
+                    "description": "Minimum strength to display level"
+                },
+                {
+                    "name": "use_volume",
+                    "type": "boolean",
+                    "label": "Use Volume",
+                    "default": true,
+                    "description": "Use volume weighting"
+                }
+            ],
+            "outputs": ["support_1", "support_2", "support_3", "resistance_1", "resistance_2", "resistance_3"]
+        },
+        {
+            "name": "PSAR",
+            "function_name": "psar",
+            "display_name": "Parabolic SAR",
+            "description": "Stop and reverse indicator",
+            "parameters": [
+                {
+                    "name": "af0",
+                    "type": "number",
+                    "label": "Initial AF",
+                    "default": 0.02,
+                    "description": "Initial acceleration factor"
+                },
+                {
+                    "name": "af",
+                    "type": "number",
+                    "label": "AF Step",
+                    "default": 0.02,
+                    "description": "AF increment"
+                },
+                {
+                    "name": "max_af",
+                    "type": "number",
+                    "label": "Max AF",
+                    "default": 0.2,
+                    "description": "Maximum AF"
+                }
+            ],
+            "outputs": ["PSARl", "PSARs", "PSARaf", "PSARr"]
+        },
+        {
+            "name": "SLOPE",
+            "function_name": "slope",
+            "display_name": "Slope",
+            "description": "Linear regression slope",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["SLOPE"]
+        },
+        {
+            "name": "VORTEX",
+            "function_name": "vortex",
+            "display_name": "Vortex Indicator",
+            "description": "Identifies trend direction and strength",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["VTXP", "VTXM"]
+        }
+    ]
+}

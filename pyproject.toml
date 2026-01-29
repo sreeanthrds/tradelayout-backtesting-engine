@@ -1,0 +1,86 @@
+[tool.poetry]
+name = "tradelayout-engine"
+version = "0.1.0"
+description = "Modern trading engine with incremental indicators and unified live/backtest execution"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [
+    { include = "tradelayout_brokers", from = "packages/tradelayout-brokers/src" },
+    { include = "tradelayout_candles", from = "packages/tradelayout-candles/src" },
+    { include = "tradelayout_indicators", from = "packages/tradelayout-indicators/src" },
+    { include = "tradelayout_data", from = "packages/tradelayout-data/src" },
+    { include = "tradelayout_redis", from = "packages/tradelayout-redis/src" },
+    { include = "tradelayout_backtest", from = "packages/tradelayout-backtest/src" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Async
+asyncio = "^3.4.3"
+uvloop = "^0.19.0"
+aiohttp = "^3.9.0"
+
+# Data
+pandas = "^2.1.0"
+numpy = "^1.26.0"
+polars = "^0.19.0"
+
+# Database
+clickhouse-connect = "^0.6.0"
+redis = "^5.0.0"
+aioredis = "^2.0.1"
+
+# Broker APIs
+smartapi-python = "^1.3.0"
+websockets = "^12.0"
+
+# Utilities
+pydantic = "^2.5.0"
+python-dotenv = "^1.0.0"
+pytz = "^2023.3"
+
+# Indicators (optional)
+ta-lib = { version = "^0.4.28", optional = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.12.0"
+black = "^23.12.0"
+ruff = "^0.1.0"
+mypy = "^1.7.0"
+ipython = "^8.18.0"
+
+[tool.poetry.extras]
+talib = ["ta-lib"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+pythonpath = ["."]
+addopts = "-v --strict-markers"
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

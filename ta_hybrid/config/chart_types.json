@@ -1,0 +1,43 @@
+{
+    "category": "Alternative Chart Types",
+    "indicators": [
+        {
+            "name": "RENKO",
+            "function_name": "renko",
+            "display_name": "Renko Bars",
+            "description": "Price-based bricks that filter out time and noise",
+            "parameters": [
+                {
+                    "name": "brick_size",
+                    "type": "number",
+                    "label": "Brick Size",
+                    "default": 10,
+                    "description": "Fixed brick size in price units"
+                },
+                {
+                    "name": "use_atr",
+                    "type": "boolean",
+                    "label": "Use ATR",
+                    "default": false,
+                    "description": "Use ATR for dynamic brick sizing"
+                },
+                {
+                    "name": "atr_length",
+                    "type": "number",
+                    "label": "ATR Length",
+                    "default": 14,
+                    "description": "ATR period if use_atr is true"
+                }
+            ],
+            "outputs": ["open", "high", "low", "close", "direction"]
+        },
+        {
+            "name": "HEIKINASHI",
+            "function_name": "heikinashi",
+            "display_name": "Heikin Ashi Candles",
+            "description": "Smoothed candlesticks for trend identification",
+            "parameters": [],
+            "outputs": ["HA_Open", "HA_High", "HA_Low", "HA_Close"]
+        }
+    ]
+}

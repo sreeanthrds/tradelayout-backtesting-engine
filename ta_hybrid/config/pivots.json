@@ -1,0 +1,147 @@
+{
+    "category": "Pivot Points & Support/Resistance",
+    "indicators": [
+        {
+            "name": "PIVOT",
+            "function_name": "pivot",
+            "display_name": "Standard Pivot Points",
+            "description": "Classic pivot points with support and resistance levels",
+            "parameters": [
+                {
+                    "name": "timeframe",
+                    "type": "string",
+                    "label": "Timeframe",
+                    "default": "D",
+                    "options": ["D", "W", "M"],
+                    "description": "Daily, Weekly, or Monthly pivots"
+                }
+            ],
+            "outputs": ["PP", "R1", "R2", "R3", "S1", "S2", "S3"]
+        },
+        {
+            "name": "CPR",
+            "function_name": "cpr",
+            "display_name": "Central Pivot Range",
+            "description": "CPR with TC (Top Central), BC (Bottom Central), and Pivot",
+            "parameters": [
+                {
+                    "name": "timeframe",
+                    "type": "string",
+                    "label": "Timeframe",
+                    "default": "D",
+                    "options": ["D", "W", "M"],
+                    "description": "Daily, Weekly, or Monthly CPR"
+                }
+            ],
+            "outputs": ["TC", "PIVOT", "BC"]
+        },
+        {
+            "name": "CAMARILLA",
+            "function_name": "camarilla",
+            "display_name": "Camarilla Pivot Points",
+            "description": "Camarilla levels for intraday trading",
+            "parameters": [
+                {
+                    "name": "timeframe",
+                    "type": "string",
+                    "label": "Timeframe",
+                    "default": "D",
+                    "options": ["D", "W", "M"],
+                    "description": "Daily, Weekly, or Monthly"
+                }
+            ],
+            "outputs": ["H4", "H3", "H2", "H1", "L1", "L2", "L3", "L4"]
+        },
+        {
+            "name": "FIBONACCI_PIVOT",
+            "function_name": "fib_pivot",
+            "display_name": "Fibonacci Pivot Points",
+            "description": "Pivot points using Fibonacci ratios",
+            "parameters": [
+                {
+                    "name": "timeframe",
+                    "type": "string",
+                    "label": "Timeframe",
+                    "default": "D",
+                    "options": ["D", "W", "M"],
+                    "description": "Daily, Weekly, or Monthly"
+                }
+            ],
+            "outputs": ["PP", "R1", "R2", "R3", "S1", "S2", "S3"]
+        },
+        {
+            "name": "WOODIE_PIVOT",
+            "function_name": "woodie_pivot",
+            "display_name": "Woodie Pivot Points",
+            "description": "Woodie's pivot point calculation",
+            "parameters": [
+                {
+                    "name": "timeframe",
+                    "type": "string",
+                    "label": "Timeframe",
+                    "default": "D",
+                    "options": ["D", "W", "M"],
+                    "description": "Daily, Weekly, or Monthly"
+                }
+            ],
+            "outputs": ["PP", "R1", "R2", "S1", "S2"]
+        },
+        {
+            "name": "DEMARK_PIVOT",
+            "function_name": "demark_pivot",
+            "display_name": "DeMark Pivot Points",
+            "description": "Tom DeMark's pivot calculation",
+            "parameters": [
+                {
+                    "name": "timeframe",
+                    "type": "string",
+                    "label": "Timeframe",
+                    "default": "D",
+                    "options": ["D", "W", "M"],
+                    "description": "Daily, Weekly, or Monthly"
+                }
+            ],
+            "outputs": ["PP", "R1", "S1"]
+        },
+        {
+            "name": "ELDER_RAY",
+            "function_name": "elder_ray",
+            "display_name": "Elder Ray",
+            "description": "Bull Power and Bear Power indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "EMA Length",
+                    "default": 13,
+                    "description": "EMA period for calculation"
+                }
+            ],
+            "outputs": ["bull_power", "bear_power"]
+        },
+        {
+            "name": "ANCHORED_VWAP",
+            "function_name": "anchored_vwap",
+            "display_name": "Anchored VWAP",
+            "description": "VWAP from a specific anchor point",
+            "parameters": [
+                {
+                    "name": "anchor_type",
+                    "type": "string",
+                    "label": "Anchor Type",
+                    "default": "session",
+                    "options": ["session", "day", "week", "month", "custom"],
+                    "description": "Type of anchor point"
+                },
+                {
+                    "name": "anchor_time",
+                    "type": "string",
+                    "label": "Session Start Time",
+                    "default": "09:15",
+                    "description": "Time for session anchor (HH:MM format)"
+                }
+            ],
+            "outputs": ["VWAP"]
+        }
+    ]
+}

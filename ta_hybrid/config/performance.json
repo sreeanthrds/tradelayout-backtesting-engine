@@ -1,0 +1,70 @@
+{
+    "category": "Performance & Returns",
+    "indicators": [
+        {
+            "name": "LOG_RETURN",
+            "function_name": "log_return",
+            "display_name": "Log Return",
+            "description": "Logarithmic return",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 1,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["LOGRET"]
+        },
+        {
+            "name": "PERCENT_RETURN",
+            "function_name": "percent_return",
+            "display_name": "Percent Return",
+            "description": "Percentage return",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 1,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["PCTRET"]
+        },
+        {
+            "name": "DRAWDOWN",
+            "function_name": "drawdown",
+            "display_name": "Drawdown",
+            "description": "Drawdown from peak",
+            "parameters": [
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["DD"]
+        }
+    ]
+}

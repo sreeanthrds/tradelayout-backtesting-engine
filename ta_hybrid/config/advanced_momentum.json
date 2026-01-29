@@ -1,0 +1,509 @@
+{
+    "category": "Advanced Momentum",
+    "indicators": [
+        {
+            "name": "APO",
+            "function_name": "apo",
+            "display_name": "Absolute Price Oscillator",
+            "description": "Difference between two moving averages",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 12,
+                    "description": "Fast MA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 26,
+                    "description": "Slow MA period"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["APO"]
+        },
+        {
+            "name": "BIAS",
+            "function_name": "bias",
+            "display_name": "Bias",
+            "description": "Distance from moving average",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 26,
+                    "description": "MA period"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["BIAS"]
+        },
+        {
+            "name": "BRAR",
+            "function_name": "brar",
+            "display_name": "BR/AR Indicator",
+            "description": "Bull/Bear power indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 26,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["AR", "BR"]
+        },
+        {
+            "name": "CFO",
+            "function_name": "cfo",
+            "display_name": "Chande Forecast Oscillator",
+            "description": "Forecast oscillator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 9,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["CFO"]
+        },
+        {
+            "name": "CG",
+            "function_name": "cg",
+            "display_name": "Center of Gravity",
+            "description": "Center of gravity oscillator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["CG"]
+        },
+        {
+            "name": "COPPOCK",
+            "function_name": "coppock",
+            "display_name": "Coppock Curve",
+            "description": "Long-term momentum indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "WMA period"
+                },
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast ROC",
+                    "default": 11,
+                    "description": "Fast ROC period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow ROC",
+                    "default": 14,
+                    "description": "Slow ROC period"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["COPC"]
+        },
+        {
+            "name": "CTI",
+            "function_name": "cti",
+            "display_name": "Correlation Trend Indicator",
+            "description": "Correlation-based trend indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 12,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["CTI"]
+        },
+        {
+            "name": "ER",
+            "function_name": "er",
+            "display_name": "Efficiency Ratio",
+            "description": "Kaufman's efficiency ratio",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["ER"]
+        },
+        {
+            "name": "INERTIA",
+            "function_name": "inertia",
+            "display_name": "Inertia",
+            "description": "Inertia indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "rvi_length",
+                    "type": "number",
+                    "label": "RVI Length",
+                    "default": 14,
+                    "description": "RVI calculation period"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["INERTIA"]
+        },
+        {
+            "name": "KDJ",
+            "function_name": "kdj",
+            "display_name": "KDJ Indicator",
+            "description": "KDJ oscillator (enhanced stochastic)",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 9,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "signal",
+                    "type": "number",
+                    "label": "Signal",
+                    "default": 3,
+                    "description": "Signal period"
+                }
+            ],
+            "outputs": ["K", "D", "J"]
+        },
+        {
+            "name": "PGO",
+            "function_name": "pgo",
+            "display_name": "Pretty Good Oscillator",
+            "description": "Momentum oscillator using ATR",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["PGO"]
+        },
+        {
+            "name": "PSL",
+            "function_name": "psl",
+            "display_name": "Psychological Line",
+            "description": "Percentage of up days",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 12,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["PSL"]
+        },
+        {
+            "name": "QQE",
+            "function_name": "qqe",
+            "display_name": "Quantitative Qualitative Estimation",
+            "description": "QQE indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "RSI period"
+                },
+                {
+                    "name": "smooth",
+                    "type": "number",
+                    "label": "Smooth",
+                    "default": 5,
+                    "description": "Smoothing period"
+                }
+            ],
+            "outputs": ["QQE", "QQEl", "QQEs"]
+        },
+        {
+            "name": "RSX",
+            "function_name": "rsx",
+            "display_name": "Relative Strength Xtra",
+            "description": "Smoothed RSI variant",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["RSX"]
+        },
+        {
+            "name": "RVGI",
+            "function_name": "rvgi",
+            "display_name": "Relative Vigor Index",
+            "description": "Measures vigor of trend",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "swma_length",
+                    "type": "number",
+                    "label": "SWMA Length",
+                    "default": 4,
+                    "description": "SWMA period"
+                }
+            ],
+            "outputs": ["RVGI", "RVGIs"]
+        },
+        {
+            "name": "SMI",
+            "function_name": "smi",
+            "display_name": "Stochastic Momentum Index",
+            "description": "Enhanced stochastic oscillator",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 5,
+                    "description": "Fast period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 20,
+                    "description": "Slow period"
+                },
+                {
+                    "name": "signal",
+                    "type": "number",
+                    "label": "Signal Period",
+                    "default": 5,
+                    "description": "Signal period"
+                }
+            ],
+            "outputs": ["SMI", "SMIs"]
+        },
+        {
+            "name": "SQUEEZE",
+            "function_name": "squeeze",
+            "display_name": "Squeeze Momentum",
+            "description": "TTM Squeeze indicator",
+            "parameters": [
+                {
+                    "name": "bb_length",
+                    "type": "number",
+                    "label": "BB Length",
+                    "default": 20,
+                    "description": "Bollinger Bands period"
+                },
+                {
+                    "name": "bb_std",
+                    "type": "number",
+                    "label": "BB Std",
+                    "default": 2,
+                    "description": "BB standard deviation"
+                },
+                {
+                    "name": "kc_length",
+                    "type": "number",
+                    "label": "KC Length",
+                    "default": 20,
+                    "description": "Keltner Channel period"
+                },
+                {
+                    "name": "kc_scalar",
+                    "type": "number",
+                    "label": "KC Scalar",
+                    "default": 1.5,
+                    "description": "KC multiplier"
+                }
+            ],
+            "outputs": ["SQZ", "SQZ_ON", "SQZ_OFF", "SQZ_NO"]
+        },
+        {
+            "name": "STC",
+            "function_name": "stc",
+            "display_name": "Schaff Trend Cycle",
+            "description": "Combines MACD and stochastic",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 23,
+                    "description": "Fast MACD period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 50,
+                    "description": "Slow MACD period"
+                },
+                {
+                    "name": "cycle",
+                    "type": "number",
+                    "label": "Cycle",
+                    "default": 10,
+                    "description": "Cycle length"
+                }
+            ],
+            "outputs": ["STC"]
+        },
+        {
+            "name": "TSI",
+            "function_name": "tsi",
+            "display_name": "True Strength Index",
+            "description": "Double-smoothed momentum indicator",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 13,
+                    "description": "Fast smoothing"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 25,
+                    "description": "Slow smoothing"
+                },
+                {
+                    "name": "signal",
+                    "type": "number",
+                    "label": "Signal Period",
+                    "default": 13,
+                    "description": "Signal line"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["TSI", "TSIs"]
+        }
+    ]
+}

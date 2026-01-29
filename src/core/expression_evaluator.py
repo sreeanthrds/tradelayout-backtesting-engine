@@ -1,0 +1,1696 @@
+#!/usr/bin/env python3
+"""
+Enhanced Expression Evaluator for trading conditions.
+"""
+
+import os
+import sys
+from typing import Dict, Any, Optional, List
+
+import pandas as pd
+import pytz
+
+# Add project root to sys.path for proper imports
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Add live_trading_engine to path for relative imports
+live_trading_engine_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if live_trading_engine_path not in sys.path:
+    sys.path.insert(0, live_trading_engine_path)
+
+# Commented out - talib not used in backtesting, causes 1-2s import delay
+# from src.utils.indicator_functions import TechnicalIndicators, calculate_ema, calculate_macd
+from src.utils.indicator_utils import execute_indicators
+import inspect
+
+
+def is_expression_type(config: Dict[str, Any]) -> bool:
+    """
+    Check if a configuration dictionary represents an expression type.
+    
+    Args:
+        config: Dictionary containing the configuration
+        
+    Returns:
+        bool: True if the configuration is an expression type, False otherwise
+    """
+    return isinstance(config, dict) and config.get('type') == 'expression'
+
+
+def evaluate_scalar_expression(expression: Dict[str, Any], data_processor, node_variables: Dict[str, Dict[str, Any]],
+                               tick_data: pd.DataFrame = None, current_candle_index: int = None) -> Optional[float]:
+    """
+    Evaluate a scalar expression.
+    
+    Args:
+        expression: Dictionary containing the expression configuration
+        data_processor: DataProcessor instance for accessing data
+        node_variables: Dictionary mapping node IDs to their variables
+        tick_data: Optional tick data for live data evaluation
+        current_candle_index: Optional current candle index for live data evaluation
+    
+    Returns:
+        The result of the expression evaluation if valid, None otherwise
+    """
+    if not isinstance(expression, dict) or 'type' not in expression:
+        raise ValueError("Expression must be a dictionary with a 'type' field")
+
+    if not is_expression_type(expression):
+        return get_scalar_value(expression, data_processor, node_variables, tick_data, current_candle_index, None)
+
+    if not all(key in expression for key in ['operation', 'left', 'right']):
+        raise ValueError("Expression must include 'operation', 'left', and 'right'")
+
+    operator = expression['operation']
+    left_value = get_scalar_value(expression['left'], data_processor, node_variables, tick_data, current_candle_index,
+                                  None)
+    right_value = get_scalar_value(expression['right'], data_processor, node_variables, tick_data, current_candle_index,
+                                   None)
+
+    # Return None if either operand is None
+    if left_value is None or right_value is None:
+        return None
+
+    try:
+        if operator == '+':
+            return left_value + right_value
+        elif operator == '-':
+            return left_value - right_value
+        elif operator == '*':
+            return left_value * right_value
+        elif operator == '/':
+            if right_value == 0:
+                return None
+            return left_value / right_value
+        else:
+            raise ValueError(f"Unknown operator: {operator}")
+    except (TypeError, ValueError):
+        return None
+
+
+def get_market_data_value(market_data_config: Dict[str, Any], data_processor: Any,
+                          current_candle_index: int = None) -> float:
+    """
+    Get market data value from the DataFrame using time-based indexing.
+    
+    Args:
+        market_data_config: Dictionary containing market data configuration
+            {
+                "type": "market_data",
+                "dataField": str,  # Data field (e.g., "close", "high", "low")
+                "field": str,      # Field name (e.g., "Close", "High", "Low")
+                "offset": int      # Time offset from current period (0 = current, 1 = previous period, etc.)
+            }
+        data_processor: DataProcessor instance containing the DataFrame
+        current_candle_index: Current candle index for time-based offset calculation
+    
+    Returns:
+        float: The market data value
+    
+    Raises:
+        ValueError: If field is invalid
+        IndexError: If offset is out of bounds
+        KeyError: If required fields are missing
+    """
+    if not isinstance(market_data_config, dict):
+        raise ValueError("Market data config must be a dictionary")
+
+    # Only support new format
+    if not all(k in market_data_config for k in ["dataField", "field", "offset"]):
+        raise KeyError("Market data configuration must include 'dataField', 'field', and 'offset'")
+
+    field = market_data_config["dataField"]
+    offset = market_data_config["offset"]
+
+    # Validate field name
+    valid_fields = ["open", "high", "low", "close", "volume", "oi"]
+    if field not in valid_fields:
+        raise ValueError(f"Invalid market data field: {field}")
+
+    # Time-based indexing approach
+    if current_candle_index is not None and hasattr(data_processor.df.index, 'freq'):
+        try:
+            # Get current timestamp
+            current_timestamp = data_processor.df.index[current_candle_index]
+
+            # Calculate target timestamp using time delta
+            # For offset=0: current time
+            # For offset=1: current time - 1 period
+            # For offset=2: current time - 2 periods, etc.
+            target_timestamp = current_timestamp - (abs(offset) * data_processor.df.index.freq)
+
+            # Find data at the target timestamp
+            if target_timestamp in data_processor.df.index:
+                return float(data_processor.df.loc[target_timestamp, field])
+            else:
+                # If exact timestamp not found, find the closest one
+                available_timestamps = data_processor.df.index
+                if target_timestamp < available_timestamps.min():
+                    raise IndexError(f"Offset {offset} goes beyond available data (target: {target_timestamp})")
+                valid_timestamps = available_timestamps[available_timestamps <= target_timestamp]
+                if len(valid_timestamps) > 0:
+                    closest_timestamp = valid_timestamps[-1]
+                    return float(data_processor.df.loc[closest_timestamp, field])
+                else:
+                    raise IndexError(f"No valid timestamp found for offset {offset}")
+        except Exception as e:
+            raise e
+    else:
+        raise ValueError(
+            "current_candle_index and a frequency-aware index are required for time-based market data lookup")
+
+
+def get_node_variable_value(config: Dict[str, Any], node_variables: List[Dict[str, Any]]) -> Optional[float]:
+    """
+    Get a node variable value from the node variables list.
+    
+    Args:
+        config: Dictionary containing node variable configuration
+            - nodeId: ID of the node containing the variable
+            - variableName: Name of the variable to retrieve
+        node_variables: List of dictionaries containing node variable information
+            Each item has: id, name, nodeId, expression
+    
+    Returns:
+        The node variable value if found and valid, None otherwise
+    """
+    # Validate required fields
+    if not all(key in config for key in ['nodeId', 'variableName']):
+        raise ValueError("Node variable configuration must include 'nodeId' and 'variableName'")
+
+    node_id = config['nodeId']
+    variable_name = config['variableName']
+
+    # Check if node_variables is a list (new structure) or dict (old structure)
+    if isinstance(node_variables, list):
+        # New list structure: search for matching nodeId and variableName
+        for var_item in node_variables:
+            if var_item.get('nodeId') == node_id and var_item.get('name') == variable_name:
+                # Get the value from the variable item
+                value = var_item.get('value')
+
+                # Return None if value is None
+                if value is None:
+                    return None
+
+                # Convert to float if possible
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+
+        # Variable not found
+        return None
+
+    elif isinstance(node_variables, dict):
+        # Old dictionary structure (for backward compatibility)
+        # Check if node exists
+        if node_id not in node_variables:
+            return None
+
+        # Check if variable exists in node
+        if variable_name not in node_variables[node_id]:
+            return None
+
+        # Get variable value
+        value = node_variables[node_id][variable_name]
+
+        # Return None if value is None
+        if value is None:
+            return None
+
+        # Convert to float if possible
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    else:
+        # Invalid node_variables type
+        return None
+
+
+def get_live_data_value(live_data_config: Dict[str, Any], data_processor: Any, tick_data: pd.DataFrame = None,
+                        current_candle_index: int = None, current_tick: Dict[str, Any] = None) -> Optional[float]:
+    """
+    Get live data value (LTP, etc.) from tick data or current market state.
+    
+    Enhanced for MVP3: Supports both tick-level and candle-level live data evaluation.
+    
+    Args:
+        live_data_config: Dictionary containing live data configuration
+            {
+                "type": "live_data",
+                "field": str,  # Field name (e.g., "ltp", "LTP", "price", "last_traded_price")
+                "dataField": str,  # Alternative field name (e.g., "ltp")
+                "offset": int  # Offset from current tick (0 for current)
+            }
+        data_processor: DataProcessor instance containing the DataFrame
+        tick_data: DataFrame containing tick-level data for intra-candle processing
+        current_candle_index: Current candle index for context
+        current_tick: Current tick data dict (for immediate LTP access)
+    
+    Returns:
+        float: The live data value, or None if not available
+    
+    Raises:
+        ValueError: If field is invalid
+        IndexError: If offset is out of bounds
+        KeyError: If required fields are missing
+    """
+    if not isinstance(live_data_config, dict):
+        raise ValueError("Live data config must be a dictionary")
+
+    # Get field name (support both 'field' and 'dataField')
+    field = live_data_config.get("field") or live_data_config.get("dataField")
+    if not field:
+        raise KeyError("Live data configuration must include 'field' or 'dataField'")
+
+    offset = live_data_config.get("offset", 0)  # Default to current (0)
+
+    # Validate field name
+    valid_fields = ["LTP", "ltp", "last_traded_price", "price", "volume", "oi"]
+    if field not in valid_fields:
+        raise ValueError(f"Invalid live data field: {field}")
+
+    # Priority 1: Use current_tick if provided (for immediate LTP access)
+    if current_tick is not None and offset == 0:
+        # Map field names to tick data keys - use only ltp
+        field_mapping = {
+            "LTP": "ltp",
+            "ltp": "ltp",
+            "last_traded_price": "ltp",
+            "price": "ltp",
+            "volume": "volume",
+            "oi": "oi"
+        }
+
+        tick_field = field_mapping.get(field, field.lower())
+        if tick_field in current_tick:
+            return float(current_tick[tick_field])
+
+    # Priority 2: For backtesting with tick data - precise intra-candle processing
+    if tick_data is not None and current_candle_index is not None:
+        try:
+            # Get tick data for current candle
+            candle_start = data_processor.df.index[current_candle_index]
+            if current_candle_index + 1 < len(data_processor.df):
+                candle_end = data_processor.df.index[current_candle_index + 1]
+            else:
+                # Last candle - use end of tick data
+                candle_end = tick_data.index[-1]
+
+            # Filter tick data for current candle
+            candle_ticks = tick_data[
+                (tick_data.index >= candle_start) &
+                (tick_data.index < candle_end)
+                ]
+
+            if len(candle_ticks) == 0:
+                return None
+
+            # Apply offset to get the target tick
+            target_tick_index = len(candle_ticks) - 1 + offset
+
+            if 0 <= target_tick_index < len(candle_ticks):
+                target_tick = candle_ticks.iloc[target_tick_index]
+
+                # Map field names to tick data columns - use only ltp
+                field_mapping = {
+                    "LTP": "ltp",
+                    "ltp": "ltp",
+                    "last_traded_price": "ltp",
+                    "price": "ltp",
+                    "volume": "volume",
+                    "oi": "oi"
+                }
+
+                tick_field = field_mapping.get(field, field.lower())
+                if tick_field in target_tick:
+                    return float(target_tick[tick_field])
+
+            return None
+
+        except Exception as e:
+            # In strict mode, unexpected errors in tick-level lookup should surface
+            raise RuntimeError(f"Error in get_live_data_value tick-level lookup: {e}") from e
+
+    # Priority 3: Fallback to candle-level data (for backtesting without tick data or live trading)
+    if current_candle_index is not None:
+        # For current value, try to get from the most recent available data
+        if field.upper() in ["LTP", "LTP", "LAST_TRADED_PRICE", "PRICE"]:
+            # Use close price as approximation for LTP
+            if current_candle_index < len(data_processor.df):
+                return float(data_processor.df['close'].iloc[current_candle_index])
+        elif field.lower() in ["volume", "oi"]:
+            if current_candle_index < len(data_processor.df):
+                return float(data_processor.df[field.lower()].iloc[current_candle_index])
+
+    return None
+
+
+def calculate_target_index(data_processor: Any, current_candle_index: int, offset: int) -> int:
+    """
+    Calculate target index using time-based offset handling.
+    
+    Args:
+        data_processor: DataProcessor instance containing the DataFrame
+        current_candle_index: Current candle index
+        offset: Time offset from current period (0 = current, -1 = previous period, etc.)
+    
+    Returns:
+        int: Target index for the offset
+    
+    Raises:
+        IndexError: If offset is out of bounds
+        ValueError: If time-based indexing is not available
+    """
+    # Time-based indexing approach
+    if current_candle_index is not None and hasattr(data_processor.df.index,
+                                                    'freq') and data_processor.df.index.freq is not None:
+        try:
+            # Get current timestamp
+            current_timestamp = data_processor.df.index[current_candle_index]
+
+            # Calculate target timestamp using time delta
+            # For offset=0: current time
+            # For offset=-1: current time - 1 period
+            # For offset=-2: current time - 2 periods, etc.
+            target_timestamp = current_timestamp - (abs(offset) * data_processor.df.index.freq)
+
+            # Find data at the target timestamp
+            if target_timestamp in data_processor.df.index:
+                target_index = data_processor.df.index.get_loc(target_timestamp)
+            else:
+                # If exact timestamp not found, find the closest one
+                available_timestamps = data_processor.df.index
+                if target_timestamp < available_timestamps.min():
+                    raise IndexError(f"Offset {offset} goes beyond available data (target: {target_timestamp})")
+                valid_timestamps = available_timestamps[available_timestamps <= target_timestamp]
+                if len(valid_timestamps) > 0:
+                    closest_timestamp = valid_timestamps[-1]
+                    target_index = data_processor.df.index.get_loc(closest_timestamp)
+                else:
+                    raise IndexError(f"No valid timestamp found for offset {offset}")
+
+            return target_index
+
+        except Exception as e:
+            raise e
+    else:
+        # Fallback: use numeric indexing (for backward compatibility)
+        if current_candle_index is not None:
+            target_index = current_candle_index + offset
+        else:
+            target_index = offset
+
+        return target_index
+
+
+def calculate_indicator(data_processor: Any, indicator_details: Dict[str, Any], target_index: int,
+                        parameter: Optional[str] = None) -> float:
+    """
+    Calculate indicator value using the technical indicators system.
+    
+    Args:
+        data_processor: DataProcessor instance containing the DataFrame
+        indicator_details: Dictionary containing indicator configuration
+        target_index: Target index for the indicator calculation
+        parameter: Optional parameter name for multi-output indicators
+    
+    Returns:
+        float: The indicator value
+    
+    Raises:
+        ValueError: If indicator calculation fails
+    """
+    indicator_name = indicator_details.get("indicator_name", "").upper()
+
+    # Create TechnicalIndicators instance
+    tech_indicators = TechnicalIndicators(data_processor.df)
+
+    try:
+        # Get the indicator method dynamically
+        method_name = indicator_name.lower()
+        if not hasattr(tech_indicators, method_name):
+            raise ValueError(f"Indicator {indicator_name} not supported")
+
+        method = getattr(tech_indicators, method_name)
+
+        # Prepare parameters (exclude indicator_name and only include valid method args)
+        valid_params = set(inspect.signature(method).parameters.keys())
+        params = {k: v for k, v in indicator_details.items() if k in valid_params}
+
+        # Call the indicator method
+        result = method(**params)
+
+        # Handle result based on type
+        if isinstance(result, pd.DataFrame):
+            if not parameter:
+                available_params = list(result.columns)
+                raise ValueError(f"Parameter required for {indicator_name}. Available: {available_params}")
+
+            if parameter not in result.columns:
+                available_params = list(result.columns)
+                raise ValueError(f"Invalid parameter '{parameter}' for {indicator_name}. Available: {available_params}")
+
+            return float(result[parameter].iloc[target_index])
+        else:
+            return float(result.iloc[target_index])
+
+    except Exception as e:
+        raise ValueError(f"Error calculating {indicator_name}: {str(e)}")
+
+
+def get_indicator_value(indicator_config: Dict[str, Any], data_processor: Any,
+                        current_candle_index: int = None) -> float:
+    """
+    Get indicator value from market data columns.
+    
+    Args:
+        indicator_config: Dictionary containing indicator configuration
+            {
+                "type": "indicator",
+                "name": str,      # Indicator name (e.g., "EMA", "MACD")
+                "offset": int     # Time offset from current period
+            }
+        data_processor: DataProcessor instance containing the DataFrame
+        current_candle_index: Current candle index for time-based offset calculation
+    
+    Returns:
+        float: The indicator value
+    
+    Raises:
+        ValueError: If indicator name is invalid
+        IndexError: If offset is out of bounds
+        KeyError: If required fields are missing
+    """
+    if not isinstance(indicator_config, dict):
+        raise ValueError("Indicator config must be a dictionary")
+
+    # Only support new format
+    if not all(k in indicator_config for k in ["name", "offset"]):
+        raise KeyError("Indicator configuration must include 'name' and 'offset'")
+
+    indicator_name = indicator_config["name"]
+    offset = indicator_config["offset"]
+
+    # Access indicator as market_data column
+    # Indicators are now treated as columns like EMA_5, MACD_12_26_9, etc.
+    field = indicator_name
+
+    # Time-based indexing approach
+    if current_candle_index is not None and hasattr(data_processor.df.index, 'freq'):
+        try:
+            # Get current timestamp
+            current_timestamp = data_processor.df.index[current_candle_index]
+
+            # Calculate target timestamp using time delta
+            target_timestamp = current_timestamp - (abs(offset) * data_processor.df.index.freq)
+
+            # Find data at the target timestamp
+            if target_timestamp in data_processor.df.index:
+                return float(data_processor.df.loc[target_timestamp, field])
+            else:
+                # If exact timestamp not found, find the closest one
+                available_timestamps = data_processor.df.index
+                if target_timestamp < available_timestamps.min():
+                    raise IndexError(f"Offset {offset} goes beyond available data (target: {target_timestamp})")
+                valid_timestamps = available_timestamps[available_timestamps <= target_timestamp]
+                if len(valid_timestamps) > 0:
+                    closest_timestamp = valid_timestamps[-1]
+                    return float(data_processor.df.loc[closest_timestamp, field])
+                else:
+                    raise IndexError(f"No valid timestamp found for offset {offset}")
+        except Exception as e:
+            raise e
+    else:
+        raise ValueError(
+            "current_candle_index and a frequency-aware index are required for time-based indicator lookup")
+
+
+def get_current_time_value(data_processor: Any, current_candle_index: int) -> Optional[float]:
+    """
+    Get current time value from the data timestamp.
+    
+    Args:
+        data_processor: DataProcessor instance
+        current_candle_index: Current candle index
+    
+    Returns:
+        The current time value if valid, None otherwise
+    """
+    if data_processor is None or current_candle_index is None or current_candle_index >= len(data_processor.df):
+        return None
+
+    try:
+        # Get current timestamp from DataFrame index
+        current_timestamp = data_processor.df.index[current_candle_index]
+        # Convert to UTC timestamp for consistent comparison
+        if current_timestamp.tz is None:
+            # If naive timestamp, assume it's in UTC
+            return float(current_timestamp.timestamp())
+        else:
+            # If timezone-aware, convert to UTC
+            return float(current_timestamp.tz_convert('UTC').timestamp())
+    except Exception as e:
+        # log_info(f"Error getting current time value: {e}")
+        return None
+
+
+def get_time_function_value(config: Dict[str, Any], data_processor: Any, current_candle_index: int) -> Optional[float]:
+    """
+    Get time function value for comparison.
+    
+    Args:
+        config: Time function configuration
+        data_processor: DataProcessor instance
+        current_candle_index: Current candle index
+    
+    Returns:
+        The time function value if valid, None otherwise
+    """
+    if not isinstance(config, dict) or 'timeValue' not in config:
+        return None
+
+    if data_processor is None or current_candle_index is None or current_candle_index >= len(data_processor.df):
+        return None
+
+    time_value_str = config['timeValue']
+    try:
+        from datetime import datetime, time
+
+        # Parse the time value (e.g., "09:00")
+        time_obj = datetime.strptime(time_value_str, '%H:%M').time()
+        # Get the date from current candle timestamp
+        current_timestamp = data_processor.df.index[current_candle_index]
+
+        # Create target datetime in UTC for consistent comparison
+        if current_timestamp.tz is None:
+            # If naive timestamp, assume it's in UTC
+            target_datetime = datetime.combine(current_timestamp.date(), time_obj)
+            target_datetime = pytz.UTC.localize(target_datetime)
+        else:
+            # If timezone-aware, use the same timezone
+            target_datetime = datetime.combine(current_timestamp.date(), time_obj)
+            target_datetime = current_timestamp.tz.localize(target_datetime)
+            # Convert to UTC for comparison
+            target_datetime = target_datetime.astimezone(pytz.UTC)
+
+        # Convert to seconds since epoch for comparison
+        return float(target_datetime.timestamp())
+    except Exception as e:
+        # log_info(f"Error getting time function value: {e}")
+        return None
+
+
+def get_scalar_value(config: Dict[str, Any], data_processor: Any, node_variables: Dict[str, Dict[str, Any]],
+                     tick_data: pd.DataFrame = None, current_candle_index: int = None,
+                     current_tick: Dict[str, Any] = None, position_manager: Any = None) -> Optional[float]:
+    """
+    Get a scalar value from various sources (constant, expression, indicator, market_data, node_variable, live_data, position_data).
+    
+    Args:
+        config: Dictionary containing the configuration for the value source
+        data_processor: DataProcessor instance for accessing data
+        node_variables: Dictionary mapping node IDs to their variables
+        tick_data: Optional tick data for live data evaluation
+        current_candle_index: Optional current candle index for live data evaluation
+        current_tick: Optional current tick data for immediate live data access
+        position_manager: Optional PositionManager instance for position data access
+    
+    Returns:
+        The scalar value if valid, None otherwise
+    """
+    if not isinstance(config, dict) or 'type' not in config:
+        raise ValueError("Configuration must be a dictionary with a 'type' field")
+
+    value_type = config['type']
+
+    if value_type == 'constant':
+        if 'value' not in config:
+            raise ValueError("Constant configuration must include 'value'")
+        return float(config['value'])
+
+    elif is_expression_type(config):
+        if not all(key in config for key in ['operation', 'left', 'right']):
+            raise ValueError("Expression configuration must include 'operation', 'left', and 'right'")
+        return evaluate_scalar_expression(config, data_processor, node_variables, tick_data, current_candle_index)
+
+    elif value_type == 'indicator':
+        if not all(key in config for key in ['name', 'offset']):
+            raise ValueError("Indicator configuration must include 'name' and 'offset'")
+        return get_indicator_value(config, data_processor)
+
+    elif value_type == 'market_data':
+        if not all(key in config for key in ['field', 'offset']):
+            raise ValueError("Market data configuration must include 'field' and 'offset'")
+        return get_market_data_value(config, data_processor, current_candle_index)
+
+    elif value_type == 'node_variable':
+        if not all(key in config for key in ['nodeId', 'variableName']):
+            raise ValueError("Node variable configuration must include 'nodeId' and 'variableName'")
+        return get_node_variable_value(config, node_variables)
+
+    elif value_type == 'live_data':
+        return get_live_data_value(config, data_processor, tick_data, current_candle_index, current_tick)
+
+    elif value_type == 'current_time':
+        return get_current_time_value(data_processor, current_candle_index)
+
+    elif value_type == 'time_function':
+        return get_time_function_value(config, data_processor, current_candle_index)
+
+    elif value_type == 'position_data':
+        return get_position_data_value(config, position_manager)
+
+    else:
+        raise ValueError(f"Unknown value type: {value_type}")
+
+
+class ExpressionEvaluator:
+    """
+    Enhanced Expression Evaluator for trading conditions.
+    
+    Based on the comprehensive expression_builder with enhanced live_data handling for MVP3.
+    Supports all expression types: constant, expression, indicator, market_data, node_variable, live_data, position_data.
+    Uses timestamp-based data access instead of numeric indices.
+    Now works without data_processor dependency using context-based data access.
+    """
+
+    def __init__(self, node_variables: List[Dict[str, Any]] = None, position_manager: Any = None):
+        """
+        Initialize the expression evaluator.
+        
+        Args:
+            node_variables: List of dictionaries containing node variable information
+                Each item has: id, name, nodeId, expression (optional, can be None)
+            position_manager: PositionManager instance for accessing position data
+        """
+        # Don't initialize node_variables here - will get from context
+        self.position_manager = position_manager
+        self.current_tick = None
+        self.current_timestamp = None
+        self.tick_data = None
+        self.candles_df = None  # Add candles DataFrame for context-based access
+        self.context = None  # Store context for accessing node_variables
+
+    def set_context(self, tick: Dict[str, Any] = None, current_timestamp: pd.Timestamp = None,
+                    tick_data: pd.DataFrame = None, candles_df: pd.DataFrame = None, context: Dict[str, Any] = None):
+        """
+        Set the current evaluation context.
+        
+        Args:
+            tick: Current tick data (for immediate LTP access)
+            current_timestamp: Current candle timestamp
+            tick_data: Tick data DataFrame for intra-candle processing
+            candles_df: Candles DataFrame for historical data access
+            context: Full context dictionary for accessing node_variables and other data
+        """
+        self.current_tick = tick
+        self.current_timestamp = current_timestamp
+        self.tick_data = tick_data
+        self.candles_df = candles_df
+        self.context = context or {}
+
+    def _select_df_by_key(self, timeframe: Optional[str], instrument_type: Optional[str]) -> Optional[pd.DataFrame]:
+        """
+        Resolve the correct DataFrame from the multi-timeframe dictionary using
+        the key pattern {symbol}:{timeframeId} (e.g., "NIFTY:tf_1m_default").
+        """
+        try:
+            if not timeframe or not self.context:
+                return None
+                
+            # Get symbol from strategy_config
+            strategy_config = self.context.get('strategy_config', {})
+            symbol = strategy_config.get('symbol', 'NIFTY')
+            
+            # Use key format: {symbol}:{timeframeId}
+            key = f"{symbol}:{timeframe}"
+            
+            # Get candles from context
+            candles_dict = self.context.get('candle_df_dict') or {}
+            df_or_builder = candles_dict.get(key)
+            
+            # TEMP DEBUG
+            if df_or_builder is None and self.context.get('tick_count', 0) <= 5:
+                print(f"  [ExpressionEvaluator] Looking for key '{key}', available: {list(candles_dict.keys())}")
+            
+            if df_or_builder is None:
+                return None
+                
+            # Support both list and DataFrame (backtesting uses list)
+            if isinstance(df_or_builder, list):
+                # Convert list to DataFrame for evaluation
+                import pandas as pd
+                return pd.DataFrame(df_or_builder) if df_or_builder else None
+            if hasattr(df_or_builder, 'get_dataframe'):
+                return df_or_builder.get_dataframe()
+            if isinstance(df_or_builder, pd.DataFrame):
+                return df_or_builder
+                
+            return None
+        except Exception as e:
+            # In strict mode, any unexpected error selecting DF is critical
+            if self.context and self.context.get('tick_count', 0) <= 5:
+                print(f"  [ExpressionEvaluator] Error in _select_df_by_key: {e}")
+            raise
+
+    def _get_last_tick_for_role(self, instrument_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Return the last tick for a given instrument role (e.g., 'TI', 'SI'),
+        populated by the batch processor/subscription layer.
+        
+        Now uses symbol-based keys (e.g., 'NIFTY') instead of role-based (e.g., 'ltp_TI').
+        """
+        # Get symbol from strategy_config
+        strategy_config = (self.context or {}).get('strategy_config', {})
+        symbol = strategy_config.get('symbol', 'NIFTY')  # Default to NIFTY
+        
+        # Use new ltp_store format: {symbol}
+        ltp_store = (self.context or {}).get('ltp_store') or {}
+        ltp_data = ltp_store.get(symbol)
+        
+        # TEMP DEBUG
+        if ltp_data is None and (self.context or {}).get('tick_count', 0) <= 5:
+            print(f"  [ExpressionEvaluator] Looking for LTP key '{symbol}', available: {list(ltp_store.keys())}")
+        
+        return ltp_data
+
+    def evaluate(self, expression: Dict[str, Any]) -> Optional[float]:
+        """
+        Evaluate an expression using context-based data access.
+        
+        Args:
+            expression: Expression configuration dictionary
+            
+        Returns:
+            The evaluated expression value or None if evaluation fails
+        """
+        if not isinstance(expression, dict):
+            return None
+
+        # Handle numeric constants
+        if expression.get('type') == 'constant':
+            try:
+                return float(expression.get('value', 0))
+            except (TypeError, ValueError):
+                return None
+
+        # Handle scalar expressions (new expression format with left/right/operation)
+        if 'operation' in expression:
+            return self._evaluate_scalar_expression(expression)
+
+        # Get value type
+        value_type = expression.get('type')
+
+        if value_type == 'constant':
+            # UI format: use 'value' field
+            if 'value' not in expression:
+                raise ValueError("Constant configuration must include 'value'")
+            
+            value_type_key = expression.get('valueType')
+            value = expression['value']
+            
+            if value_type_key == 'number':
+                return float(value)
+            elif value_type_key == 'boolean':
+                return bool(value)
+            elif value_type_key == 'string':
+                return str(value)
+            elif value_type_key == 'status':
+                return str(value)
+            else:
+                # Default: try to convert to float
+                try:
+                    return float(value)
+                except Exception:
+                    return value
+
+        elif value_type == 'indicator':
+            if not all(key in expression for key in ['name', 'offset']):
+                raise ValueError("Indicator configuration must include 'name' and 'offset'")
+            # DEBUG (disabled)
+            # tick_count = (self.context or {}).get('tick_count', 0)
+            # if tick_count <= 200:
+            #     print(f"[Tick {tick_count}] 🎯 Evaluating indicator: {expression.get('name')}, offset: {expression.get('offset')}")
+            return self._get_indicator_value(expression)
+
+        elif value_type in ('market_data', 'candle_data'):
+            # Support both market_data and candle_data (used interchangeably)
+            field = expression.get('field') or expression.get('dataField')
+            if not field or 'offset' not in expression:
+                raise ValueError("Market/Candle data configuration must include 'field' and 'offset'")
+            return self._get_market_data_value(expression)
+
+        elif value_type == 'node_variable':
+            if not all(key in expression for key in ['nodeId', 'variableName']):
+                raise ValueError("Node variable configuration must include 'nodeId' and 'variableName'")
+            return self._get_node_variable_value(expression)
+
+        elif value_type == 'live_data':
+            if 'field' not in expression:
+                raise ValueError("Live data configuration must include 'field'")
+            return self._get_live_data_value(expression)
+
+        elif value_type == 'current_time':
+            return self._get_current_time_value()
+
+        elif value_type == 'time_function':
+            return self._get_time_function_value(expression)
+
+        elif value_type == 'position_data':
+            return self._get_position_data_value(expression)
+        elif value_type == 'pnl_data':
+            return self._get_pnl_value(expression)
+
+        else:
+            raise ValueError(f"Unknown value type: {value_type}")
+
+    def _evaluate_scalar_expression(self, expression: Dict[str, Any]) -> Optional[float]:
+        """
+        Evaluate a scalar expression without data_processor dependency.
+        
+        Args:
+            expression: Expression configuration dictionary
+            
+        Returns:
+            The evaluated expression value or None if evaluation fails
+        """
+        if not isinstance(expression, dict) or 'operation' not in expression:
+            return None
+
+        operation = expression['operation']
+        left_config = expression.get('left')
+        right_config = expression.get('right')
+
+        # Evaluate left and right operands
+        left_value = self._get_scalar_value(left_config) if left_config else None
+        right_value = self._get_scalar_value(right_config) if right_config else None
+
+        # Handle None values
+        if left_value is None or right_value is None:
+            return None
+
+        # Perform the operation (strict mode: unexpected errors surface)
+        try:
+            if operation == '+':
+                return left_value + right_value
+            elif operation == '-':
+                return left_value - right_value
+            elif operation == '*':
+                return left_value * right_value
+            elif operation == '/':
+                if right_value == 0:
+                    return None
+                return left_value / right_value
+            # Remove all comparison operators (>, <, >=, <=, ==, !=)
+            # Add percentage increase and decrease operators
+            elif operation == '+%':
+                if left_value is None or right_value is None:
+                    return None
+                return left_value + (left_value * right_value / 100)
+            elif operation == '-%':
+                if left_value is None or right_value is None:
+                    return None
+                return left_value - (left_value * right_value / 100)
+            else:
+                return None
+        except Exception as e:
+            raise RuntimeError(f"Error evaluating scalar expression: {e}") from e
+
+    def _get_indicator_value(self, config: Dict[str, Any]) -> Optional[float]:
+        """
+        Get indicator value without data_processor dependency.
+        Supports both DataFrame and list formats from cache.
+        
+        Args:
+            config: Dictionary containing indicator configuration
+            
+        Returns:
+            The indicator value or None if not available
+        """
+        # Get symbol from strategy_config
+        strategy_config = (self.context or {}).get('strategy_config', {})
+        symbol = strategy_config.get('symbol', 'NIFTY')
+        
+        # Get indicator configuration from UI format
+        indicator_name = config['name']
+        offset = config['offset']
+        parameter = config.get('parameter')
+        timeframe_id = config.get('timeframeId')
+        
+        # DEBUG (disabled)
+        
+        if not timeframe_id:
+            return None
+        
+        # Use key format: {symbol}:{timeframeId}
+        key = f"{symbol}:{timeframe_id}"
+        candles_dict = (self.context or {}).get('candle_df_dict', {})
+        candles = candles_dict.get(key)
+        
+        # DEBUG (disabled)
+        
+        if not candles:
+            return None
+        
+        # Get the correct column/field name
+        if parameter:
+            field = f"{indicator_name}_{parameter}"  # Multi-output indicator
+        else:
+            field = indicator_name  # Single-output indicator
+        
+        # For backtesting, candles is a list of dicts
+        if isinstance(candles, list):
+            try:
+                # Get candle at offset position from end
+                # offset -1 = previous completed candle (candles[-2])
+                # offset -2 = 2 candles back (candles[-3])
+                # offset  0 = current forming candle (candles[-1])
+                target_index = offset - 1  # Convert UI offset to array index
+                
+                if abs(target_index) > len(candles):
+                    return None
+                
+                candle = candles[target_index]
+                
+                # DEBUG (disabled)
+                
+                # Try to get value from candle's indicators dict
+                indicators = candle.get('indicators', {})
+                value = indicators.get(field) if indicators else None
+                
+                # If not found, try mapping database key to generated key
+                if value is None:
+                    data_manager = (self.context or {}).get('data_manager')
+                    if data_manager and hasattr(data_manager, 'indicator_key_mappings') and indicators:
+                        mappings = data_manager.indicator_key_mappings.get(key, {})
+                        mapped_key = mappings.get(field)
+                        if mapped_key:
+                            value = indicators.get(mapped_key)
+                            # DEBUG (disabled)
+                
+                return float(value) if value is not None else None
+            except Exception as e:
+                raise RuntimeError(f"Error accessing indicator value from candles list: {e}") from e
+        
+        # For DataFrame format (live trading)
+        df = candles if isinstance(candles, pd.DataFrame) else None
+        if df is None or len(df) == 0:
+            return None
+        
+        # Check if field exists in DataFrame
+        if field not in df.columns:
+            return None
+        
+        # Calculate target position relative to current_timestamp (strict mode)
+        try:
+            current_ts = (self.context or {}).get('current_timestamp')
+            if current_ts is None:
+                return None
+            idx = df.index
+            try:
+                pos = idx.get_loc(current_ts, method='pad') if hasattr(idx, 'get_loc') else None
+            except Exception:
+                pos = None
+            if pos is None:
+                import numpy as np
+                pos = int(idx.searchsorted(current_ts, side='right') - 1)
+            target_pos = pos + offset
+            if target_pos < 0 or target_pos >= len(idx):
+                return None
+            return float(df.iloc[target_pos][field])
+        except Exception as e:
+            raise RuntimeError(f"Error accessing indicator value from DataFrame: {e}") from e
+
+    def _get_market_data_value(self, config: Dict[str, Any]) -> Optional[float]:
+        """
+        Get market data value without data_processor dependency.
+        Supports both DataFrame and list formats from cache.
+        
+        Args:
+            config: Dictionary containing market data configuration
+            
+        Returns:
+            The market data value or None if not available
+        """
+        # Get symbol from strategy_config
+        strategy_config = (self.context or {}).get('strategy_config', {})
+        symbol = strategy_config.get('symbol', 'NIFTY')
+        
+        # Get timeframe from UI format
+        timeframe_id = config.get('timeframeId')
+        if not timeframe_id:
+            return None
+        
+        # Use key format: {symbol}:{timeframeId}
+        key = f"{symbol}:{timeframe_id}"
+        candles_dict = (self.context or {}).get('candle_df_dict', {})
+        candles = candles_dict.get(key)
+        
+        # DEBUG: Log available context keys
+        tick_count = (self.context or {}).get('tick_count', 0)
+        if tick_count <= 5 and not candles:
+            print(f"\n[Tick {tick_count}] _get_market_data_value: No candles found for key: {key}")
+            print(f"  Available context keys: {list((self.context or {}).keys())[:10]}")
+            print(f"  candle_df_dict keys: {list(candles_dict.keys())}")
+        
+        if not candles:
+            return None
+        
+        # Get field from UI format (support both field and dataField)
+        field = config.get('field') or config.get('dataField')
+        if field is None:
+            return None
+        
+        offset = config.get('offset', 0)
+        field = str(field).lower()
+        
+        # DEBUG (disabled)
+        
+        # For backtesting, candles is a list of dicts
+        # Last element is the forming candle, rest are completed candles
+        if isinstance(candles, list):
+            # offset=0 means current forming candle (last in list)
+            # offset=-1 means previous completed candle (second to last)
+            # offset=-2 means 2 candles back, etc.
+            try:
+                # Convert offset to array index: offset - 1
+                # offset 0  → candles[-1] (forming)
+                # offset -1 → candles[-2] (last completed)
+                # offset -2 → candles[-3] (2 completed back)
+                target_index = offset - 1
+                
+                if abs(target_index) > len(candles):
+                    return None
+                
+                candle = candles[target_index]
+                
+                # Safeguard: Warn if accessing indicator on forming candle (offset 0)
+                # Indicators are only calculated on completed candles
+                ohlcv_fields = ['open', 'high', 'low', 'close', 'volume', 'timestamp']
+                if offset == 0 and field not in ohlcv_fields:
+                    logger.warning(
+                        f"Attempting to access indicator '{field}' on forming candle (offset 0). "
+                        f"Indicators are only available on completed candles (offset < 0). "
+                        f"Returning None."
+                    )
+                    return None
+                
+                # Try to get value from candle
+                value = candle.get(field)
+                
+                # If not found directly and field is not OHLCV, check indicators
+                if value is None and field not in ohlcv_fields:
+                    indicators = candle.get('indicators', {})
+                    tick_count = (self.context or {}).get('tick_count', 0)
+                    if indicators:
+                        # Try direct lookup first
+                        value = indicators.get(field)
+                        
+                        # If not found, try mapping database key to generated key
+                        if value is None:
+                            data_manager = (self.context or {}).get('data_manager')
+                            if data_manager and hasattr(data_manager, 'indicator_key_mappings'):
+                                mappings = data_manager.indicator_key_mappings.get(key, {})
+                                mapped_key = mappings.get(field)
+                                if mapped_key:
+                                    value = indicators.get(mapped_key)
+                                    # DEBUG: Log successful mapping for first 200 ticks
+                                    if tick_count <= 200:
+                                        print(f"[Tick {tick_count}] ✅ Mapped '{field}' → '{mapped_key}' = {value}")
+                                elif tick_count <= 100:
+                                    print(f"[Tick {tick_count}] ⚠️ No mapping for '{field}' in {key}")
+                                    print(f"  Available mappings: {list(mappings.keys())}")
+                                    print(f"  Indicators in candle: {list(indicators.keys())}")
+                
+                # DEBUG at tick 115
+                tick_count = (self.context or {}).get('tick_count', 0)
+                if tick_count == 115 or (tick_count >= 60 and tick_count <= 65):
+                    print(f"  [ExpressionEvaluator._get_market_data_value] Tick {tick_count}")
+                    print(f"    Key: {key}, Field: {field}, Offset: {offset}")
+                    print(f"    Candles count: {len(candles)}, Target index: {target_index}")
+                    print(f"    Candle timestamp: {candle.get('timestamp')}")
+                    print(f"    Candle data: open={candle.get('open')}, high={candle.get('high')}, low={candle.get('low')}, close={candle.get('close')}")
+                    print(f"    Requested field '{field}' value: {value}")
+                
+                return float(value) if value is not None else None
+            except Exception as e:
+                raise RuntimeError(f"Error accessing market data value from candles list: {e}") from e
+        
+        # For DataFrame format (live trading)
+        df = candles if isinstance(candles, pd.DataFrame) else None
+        if df is None or len(df) == 0:
+            return None
+        
+        if field not in df.columns:
+            return None
+        
+        # Calculate target position relative to current_timestamp (strict mode)
+        try:
+            current_ts = (self.context or {}).get('current_timestamp')
+            if current_ts is None:
+                return None
+            idx = df.index
+            try:
+                pos = idx.get_loc(current_ts, method='pad') if hasattr(idx, 'get_loc') else None
+            except Exception:
+                pos = None
+            if pos is None:
+                pos = int(idx.searchsorted(current_ts, side='right') - 1)
+            target_pos = pos + offset
+            
+            if target_pos >= 0 and target_pos < len(df):
+                return float(df.iloc[target_pos][field])
+            return None
+        except Exception as e:
+            raise RuntimeError(f"Error accessing market data value from DataFrame: {e}") from e
+
+    def _calculate_target_timestamp(self, offset: int) -> Optional[pd.Timestamp]:
+        """
+        Calculate target timestamp using offset without data_processor dependency.
+        Args:
+            offset: Time offset from current period (0 = current, -1 = previous period, etc.)
+        Returns:
+            Target timestamp or None if calculation fails
+        """
+        if self.candles_df is None or self.current_timestamp is None:
+            return None
+        available_timestamps = self.candles_df.index.sort_values()
+        # Always treat current_timestamp as the last index (current candle)
+        current_position = len(available_timestamps) - 1
+        target_position = current_position + offset
+        if target_position < 0 or target_position >= len(available_timestamps):
+            return None
+        return available_timestamps[target_position]
+
+    def _get_node_variable_value(self, config: Dict[str, Any]) -> Optional[float]:
+        """
+        Get node variable value without data_processor dependency using GPS.
+        
+        Args:
+            config: Dictionary containing node variable configuration
+            
+        Returns:
+            The node variable value or None if not found
+        """
+        node_id = config['nodeId']
+        variable_name = config['variableName']
+
+        # Get GPS from context manager
+        context_manager = self.context.get('context_manager') if self.context else None
+        if context_manager:
+            # Use GPS to get node variable
+            value = context_manager.get_node_variable(node_id, variable_name)
+
+            # Return None if value is None
+            if value is None:
+                return None
+
+            # Convert to float if possible
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        # Fallback to old method if no context manager
+        node_variables = self.context.get('node_variables') if self.context else None
+
+        # If no node_variables in context, return None
+        if node_variables is None:
+            return None
+
+        # Check if node_variables is a list (new structure) or dict (old structure)
+        if isinstance(node_variables, list):
+            # New list structure: search for matching nodeId and variableName
+            for var_item in node_variables:
+                if var_item.get('nodeId') == node_id and var_item.get('name') == variable_name:
+                    # Get the value from the variable item
+                    value = var_item.get('value')
+
+                    # Return None if value is None
+                    if value is None:
+                        return None
+
+                    # Convert to float if possible
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return None
+
+            # Variable not found
+            return None
+
+        elif isinstance(node_variables, dict):
+            # Old dictionary structure (for backward compatibility)
+            # Check if node exists
+            if node_id not in node_variables:
+                return None
+
+            # Check if variable exists in node
+            if variable_name not in node_variables[node_id]:
+                return None
+
+            # Get variable value
+            value = node_variables[node_id][variable_name]
+
+            # Return None if value is None
+            if value is None:
+                return None
+
+            # Convert to float if possible
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        else:
+            # Invalid node_variables type
+            return None
+
+    def _get_live_data_value(self, config: Dict[str, Any]) -> Optional[float]:
+        """
+        Get live data value without data_processor dependency.
+        
+        Args:
+            config: Dictionary containing live data configuration
+            
+        Returns:
+            The live data value or None if not available
+        """
+        # Get field from UI format (support both field and dataField)
+        field = config.get('field') or config.get('dataField')
+        if field is None:
+            return None
+
+        # Map field names to standard tick format - use only ltp
+        field_mapping = {
+            "LTP": "ltp",
+            "ltp": "ltp",
+            "underlying_ltp": "ltp",  # FIX: Map underlying_ltp to ltp
+            "last_traded_price": "ltp",
+            "price": "ltp",
+            "volume": "volume",
+            "oi": "oi",
+            "mark": "ltp"
+        }
+
+        tick_field = field_mapping.get(field, field.lower())
+
+        # Priority 1: Use last_tick_by_role mapping (websocket/live compatible)
+        role = config.get('instrumentType', 'TI')
+        last_tick = self._get_last_tick_for_role(role)
+        
+        # TEMP DEBUG
+        from src.utils.logger import log_critical
+        log_critical(f"🔍 [LIVE_DATA] field={field}, tick_field={tick_field}, role={role}")
+        log_critical(f"🔍 [LIVE_DATA] last_tick keys: {list(last_tick.keys()) if last_tick else None}")
+        
+        if last_tick and tick_field in last_tick:
+            try:
+                value = float(last_tick[tick_field])
+                log_critical(f"🔍 [LIVE_DATA] Returning value: {value}")
+                return value
+            except (TypeError, ValueError):
+                log_critical(f"🔍 [LIVE_DATA] Failed to convert to float")
+                return None
+
+        # Priority 2: Use current_tick if provided
+        if self.current_tick and tick_field in self.current_tick:
+            try:
+                return float(self.current_tick[tick_field])
+            except (TypeError, ValueError):
+                return None
+
+        # Priority 2: Fallback to current candle data (for backtesting without tick data)
+        # For fallback, attempt to use the primary timeframe DataFrame
+        if self.candles_df is not None and self.current_timestamp is not None:
+            if self.current_timestamp in self.candles_df.index:
+                if tick_field in self.candles_df.columns:
+                    try:
+                        return float(self.candles_df.loc[self.current_timestamp, tick_field])
+                    except (TypeError, ValueError):
+                        return None
+
+        return None
+
+    def _get_current_time_value(self) -> Optional[float]:
+        """
+        Get current time value without data_processor dependency.
+        
+        Returns:
+            Current timestamp as float or None if not available
+        """
+        if self.current_timestamp is not None:
+            try:
+                return float(self.current_timestamp.timestamp())
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _get_time_function_value(self, config: Dict[str, Any]) -> Optional[float]:
+        """
+        Get time function value without data_processor dependency.
+        
+        Args:
+            config: Dictionary containing time function configuration
+            
+        Returns:
+            The time function value or None if not available
+        """
+        if self.current_timestamp is None:
+            return None
+
+        # Handle timeValue field from JSON structure
+        if 'timeValue' in config:
+            time_value_str = config['timeValue']
+            try:
+                from datetime import datetime, time
+
+                # Parse the time value (e.g., "09:21")
+                time_obj = datetime.strptime(time_value_str, '%H:%M').time()
+
+                # Get the date from current timestamp
+                if hasattr(self.current_timestamp, 'date'):
+                    current_date = self.current_timestamp.date()
+                else:
+                    # Pandas Timestamp
+                    current_date = self.current_timestamp.to_pydatetime().date()
+
+                # Create target datetime (naive)
+                target_datetime = datetime.combine(current_date, time_obj)
+
+                # Convert to seconds since epoch for comparison
+                return float(target_datetime.timestamp())
+            except Exception as e:
+                log_error(f"Error evaluating time function with timeValue '{time_value_str}': {e}")
+                return None
+
+        # Fallback to function-based approach
+        function_name = config.get('function', 'current_time')
+
+        try:
+            if function_name == 'current_time':
+                return float(self.current_timestamp.timestamp())
+            elif function_name == 'hour':
+                return float(self.current_timestamp.hour)
+            elif function_name == 'minute':
+                return float(self.current_timestamp.minute)
+            elif function_name == 'second':
+                return float(self.current_timestamp.second)
+            elif function_name == 'day':
+                return float(self.current_timestamp.day)
+            elif function_name == 'month':
+                return float(self.current_timestamp.month)
+            elif function_name == 'year':
+                return float(self.current_timestamp.year)
+            else:
+                return None
+        except (TypeError, ValueError):
+            return None
+
+    def _get_position_data_value(self, config: Dict[str, Any]) -> Optional[float]:
+        """
+        Get position data value without data_processor dependency using GPS.
+        
+        Args:
+            config: Dictionary containing position data configuration
+            
+        Returns:
+            The position data value or None if not available
+        """
+        # Get GPS from context manager
+        context_manager = self.context.get('context_manager') if self.context else None
+        if not context_manager:
+            return None
+
+        # Get position field from UI format
+        position_field = config.get('field')
+        source = config.get('source', 'position')
+        position_id = config.get('vpi')
+
+        if position_field is None:
+            return None
+
+        # Get position from GPS (require explicit position_id; no implicit fallback)
+        position = context_manager.get_position(position_id)
+        if position is None:
+            return None
+
+        # Map positionField to position attribute (extend with status/trailing)
+        field_mapping = {
+            "entryPrice": "entry_price",
+            "quantity": "quantity",
+            "currentPrice": "current_price",
+            "unrealizedPnl": "unrealized_pnl",
+            "realizedPnl": "realized_pnl",
+            "exitPrice": "exit_price",
+            "multiplier": "multiplier",
+            "pnl": "pnl",
+            "price": "entry_price",
+            "status": "status",
+            "trailingPositionPrice": "trailing_position_price",
+            # Underlying related fields (if stored in GPS entry/exit)
+            "underlyingPriceOnEntry": "underlying_price_on_entry",
+            "underlyingPriceOnExit": "underlying_price_on_exit"
+        }
+
+        field_name = field_mapping.get(position_field, position_field)
+
+        # Try to get value from position dictionary
+        if isinstance(position, dict):
+            # For source 'underlying', prefer underlying-specific keys if requested
+            if source == 'underlying' and field_name in [
+                'underlying_price_on_entry', 'underlying_price_on_exit'
+            ]:
+                if field_name in position.get('entry', {}):
+                    value = position['entry'][field_name]
+                elif field_name in position:
+                    value = position[field_name]
+                else:
+                    return None
+            else:
+                # Check in entry data first
+                if field_name in position.get('entry', {}):
+                    value = position['entry'][field_name]
+                elif field_name in position:
+                    value = position[field_name]
+                else:
+                    # Try common aliases for trailing price
+                    if field_name == 'trailing_positionPrice' and 'trailing_position_price' in position:
+                        value = position['trailing_position_price']
+                    else:
+                        return None
+        else:
+            # Try to get value from position object
+            if hasattr(position, field_name):
+                value = getattr(position, field_name)
+            else:
+                return None
+
+        # Return None for None values, otherwise convert to float
+        if value is None:
+            return None
+
+        # For status or string-like fields, return as-is
+        if position_field == 'status' or isinstance(value, str):
+            return value  # Let condition evaluator handle equality
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _get_pnl_value(self, config: Dict[str, Any]) -> Optional[float]:
+        """
+        Generic PnL evaluation: supports source ('position'|'underlying'), scope ('position'|'overall'),
+        and pnlType ('realized'|'unrealized'|'total').
+        """
+        source = config.get('source', 'position')
+        scope = config.get('scope', 'position')
+        pnl_type = config.get('pnlType', 'total')
+        position_id = config.get('vpi')
+
+        context_manager = self.context.get('context_manager') if self.context else None
+        if not context_manager:
+            return None
+
+        def compute_unrealized(pos: dict) -> Optional[float]:
+            """Compute unrealized P&L for the currently open transaction of a position.
+            Falls back to position-level fields if transactions are unavailable.
+            """
+            try:
+                txns = (pos.get('transactions') or []) if isinstance(pos, dict) else []
+                open_txn = None
+                for txn in reversed(txns):
+                    if (txn or {}).get('status') == 'open':
+                        open_txn = txn
+                        break
+
+                # Resolve side and entry price
+                side_val = None
+                entry_px = None
+                qty = None
+
+                if open_txn:
+                    entry_info = (open_txn.get('entry') or {})
+                    side_val = entry_info.get('side') or open_txn.get('side')
+                    entry_px = entry_info.get('fill_price') or entry_info.get('price')
+                    qty = open_txn.get('quantity') or entry_info.get('quantity')
+
+                # Fallback to position-level
+                if side_val is None:
+                    side_val = (pos.get('entry', {}) or {}).get('side') or pos.get('side') or 'buy'
+                if entry_px is None:
+                    entry_px = pos.get('entry_price') or (pos.get('entry', {}) or {}).get('price')
+                if qty is None:
+                    qty = pos.get('quantity')
+
+                qty = float(qty or 0)
+                if qty == 0:
+                    return 0.0
+                side_is_buy = str(side_val).lower() == 'buy'
+                entry_px = float(entry_px or 0)
+
+                # Get current price from live tick (TI role)
+                # Get current price from ltp_store
+                ltp_store = (self.context or {}).get('ltp_store', {})
+                
+                # Get TI tick data
+                last_tick = ltp_store.get('ltp_TI') or {}
+                current_px = float(last_tick.get('ltp') or last_tick.get('price') or 0)
+                if current_px == 0 or entry_px == 0:
+                    return None
+                diff = (current_px - entry_px) if side_is_buy else (entry_px - current_px)
+                return diff * qty
+            except Exception:
+                return None
+
+        def get_position_pnl(pos: dict) -> float:
+            """Compute position P&L using transactions:
+            - realized: sum of pnl for all closed transactions
+            - unrealized: current open transaction only
+            """
+            realized_sum = 0.0
+            try:
+                txns = (pos.get('transactions') or []) if isinstance(pos, dict) else []
+                for txn in txns:
+                    try:
+                        if (txn or {}).get('status') != 'open':
+                            realized_sum += float((txn or {}).get('pnl') or 0.0)
+                    except Exception:
+                        continue
+                # For fully closed positions with no txn pnl captured, fallback to top-level
+                if not txns and pos.get('status') == 'closed':
+                    realized_sum = float(pos.get('pnl') or 0.0)
+            except Exception:
+                # Fallback to top-level key
+                try:
+                    if pos.get('status') == 'closed':
+                        realized_sum = float(pos.get('pnl') or 0.0)
+                except Exception:
+                    realized_sum = 0.0
+
+            unreal = 0.0
+            if pos.get('status') != 'closed':
+                u = compute_unrealized(pos)
+                unreal = 0.0 if u is None else float(u)
+
+            if pnl_type == 'realized':
+                return realized_sum
+            elif pnl_type == 'unrealized':
+                return unreal
+            else:
+                return realized_sum + unreal
+
+        if scope == 'position':
+            if not position_id:
+                return None
+            pos = context_manager.get_position(position_id)
+            if not pos:
+                return None
+            # Placeholder: source=='underlying' would use underlying prices if available
+            return get_position_pnl(pos)
+        else:
+            # overall scope: sum across positions
+            total = 0.0
+            for pos in context_manager.get_open_positions().values():
+                total += get_position_pnl(pos)
+            for pos in context_manager.get_closed_positions().values():
+                total += get_position_pnl(pos)
+            return total
+
+
+def get_position_data_value(position_data_config: Dict[str, Any], position_manager: Any) -> Optional[float]:
+    """
+    Get position data value from position manager.
+    
+    Args:
+        position_data_config: Dictionary containing position data configuration
+            {
+                "type": "position_data",
+                "positionField": str,  # Field name (e.g., "entryPrice", "quantity")
+                "positionId": str      # Position ID (e.g., "pos-c12e82")
+            }
+        position_manager: PositionManager instance for accessing position data
+    
+    Returns:
+        float: The position data value, or None if not available
+    """
+    if not isinstance(position_data_config, dict):
+        return None
+
+    # Validate required fields
+    required_fields = ["positionField", "positionId"]
+    for field in required_fields:
+        if field not in position_data_config:
+            # log_info(f"Missing required field '{field}' for position_data")
+            return None
+
+    position_field = position_data_config["positionField"]
+    position_id = position_data_config["positionId"]
+
+    if position_manager is None:
+        # log_info("PositionManager is required for position_data evaluation")
+        return None
+
+    # Get position by ID
+    position = position_manager.get_position(position_id)
+    if position is None:
+        # log_info(f"Position with ID '{position_id}' not found")
+        return None
+
+    # Map positionField to position attribute
+    field_mapping = {
+        "entryPrice": "entry_price",
+        "quantity": "quantity",
+        "currentPrice": "current_price",
+        "unrealizedPnl": "unrealized_pnl",
+        "realizedPnl": "realized_pnl",
+        "exitPrice": "exit_price",
+        "multiplier": "multiplier"
+    }
+
+    field_name = field_mapping.get(position_field)
+    if field_name is None:
+        # log_info(f"Unknown position field: {position_field}")
+        return None
+
+    if not hasattr(position, field_name):
+        # log_info(f"Position does not have field: {field_name}")
+        return None
+
+    value = getattr(position, field_name)
+
+    # Return None for None values, otherwise convert to float
+    if value is None:
+        return None
+
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        # log_info(f"Cannot convert position field '{field_name}' value '{value}' to float")
+        return None

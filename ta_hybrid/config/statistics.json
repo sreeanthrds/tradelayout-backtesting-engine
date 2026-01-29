@@ -1,0 +1,180 @@
+{
+    "category": "Statistics",
+    "indicators": [
+        {
+            "name": "ENTROPY",
+            "function_name": "entropy",
+            "display_name": "Entropy",
+            "description": "Shannon entropy of price distribution",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["ENTROPY"]
+        },
+        {
+            "name": "KURTOSIS",
+            "function_name": "kurtosis",
+            "display_name": "Kurtosis",
+            "description": "Measures tailedness of distribution",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 30,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["KURT"]
+        },
+        {
+            "name": "MAD",
+            "function_name": "mad",
+            "display_name": "Mean Absolute Deviation",
+            "description": "Average absolute deviation from mean",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 30,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["MAD"]
+        },
+        {
+            "name": "MEDIAN",
+            "function_name": "median",
+            "display_name": "Median",
+            "description": "Median price over period",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 30,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["MEDIAN"]
+        },
+        {
+            "name": "QUANTILE",
+            "function_name": "quantile",
+            "display_name": "Quantile",
+            "description": "Quantile of price distribution",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 30,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "q",
+                    "type": "number",
+                    "label": "Quantile",
+                    "default": 0.5,
+                    "description": "Quantile value (0-1)"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["QTL"]
+        },
+        {
+            "name": "SKEW",
+            "function_name": "skew",
+            "display_name": "Skewness",
+            "description": "Measures asymmetry of distribution",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 30,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["SKEW"]
+        },
+        {
+            "name": "ZSCORE",
+            "function_name": "zscore",
+            "display_name": "Z-Score",
+            "description": "Standard score (number of standard deviations from mean)",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 30,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["ZS"]
+        }
+    ]
+}

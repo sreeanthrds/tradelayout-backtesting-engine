@@ -1,0 +1,131 @@
+# TradeLayout Engine - Requirements
+# EXACT versions to match local environment
+# Python: 3.12.3
+
+# Async support - EXACT versions (updated to match working environment)
+aiohttp==3.13.3
+aiofiles==25.1.0
+aioredis==2.0.1
+aiohappyeyeballs==2.6.1
+aiosignal==1.4.0
+anyio==4.12.1
+async-timeout==5.0.1
+annotated-doc==0.0.4
+annotated-types==0.7.0
+attrs==25.4.0
+
+# Database - EXACT versions
+clickhouse-driver==0.2.10
+clickhouse-connect==0.8.18
+redis==6.4.0
+hiredis==3.3.0
+
+# Data processing - EXACT versions (updated to match working environment)
+pandas==3.0.0
+numpy==2.2.6
+scipy==1.11.0
+scikit-learn==1.3.0
+numba==0.60.0
+pyarrow==18.1.0
+
+# Technical Analysis - EXACT versions (updated to match working environment)
+pandas-ta==0.4.71b0
+yfinance==0.2.66
+TA-Lib==0.6.8
+
+# API - EXACT versions (updated to match working environment)
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
+pydantic==2.12.5
+pydantic-settings==2.11.0
+pydantic_core==2.41.5
+sse-starlette==3.2.0
+starlette==0.50.0
+
+# WebSocket - EXACT versions
+websocket-client==1.8.0
+websockets==15.0.1
+simple-websocket==1.1.0
+trio-websocket==0.11.1
+engineio==4.10.1
+socketio==5.11.4
+python-socketio==5.10.0
+
+# Authentication & Security - EXACT versions (updated to match working environment)
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.22
+cryptography==46.0.2
+itsdangerous==2.2.0
+PyJWT==2.10.1
+PyYAML==6.0.3
+
+# Cloud Services - EXACT versions
+supabase==2.16.0
+razorpay==1.3.0
+boto3==1.36.26
+botocore==1.36.26
+s3transfer==0.11.2
+awscrt==0.24.1
+
+# Utilities - EXACT versions (updated to match working environment)
+python-dotenv==1.0.0
+pytz==2024.2
+requests==2.32.3
+urllib3==2.3.0
+certifi==2025.1.8
+pyotp==2.9.0
+loguru==0.7.3
+click==8.1.8
+StrEnum==0.4.15
+Pygments==2.19.2
+
+# Data compression - EXACT versions
+lz4==4.4.1
+zstd==0.23.2
+msgpack==1.1.0
+
+# HTTP/Web - EXACT versions
+httpx==0.29.1
+h11==0.18.0
+h2==4.1.0
+httptools==0.6.6
+watchfiles==1.0.4
+
+# Testing - EXACT versions
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+hypothesis==6.125.2
+
+# Monitoring - EXACT versions
+prometheus-client==0.21.1
+
+# Data visualization - EXACT versions
+matplotlib==3.10.0
+plotly==5.24.1
+seaborn==0.13.2
+
+# Statistical analysis - EXACT versions
+statsmodels==0.14.4
+
+# Excel support - EXACT versions
+openpyxl==3.1.5
+xlrd==2.0.1
+xlsxwriter==3.2.2
+
+# Additional packages found in local environment
+pandas-stubs==2.3.2.250926
+typing_extensions==4.12.2
+frozenlist==1.5.0
+multidict==6.1.0
+yarl==1.18.3
+idna==3.10
+charset_normalizer==3.4.1
+markupsafe==3.0.2
+
+# System dependencies (install with apt/yum):
+# sudo apt-get install -y build-essential libta-lib-dev
+# sudo apt-get install -y python3-dev python3-pip
+# sudo apt-get install -y libssl-dev libffi-dev
+# sudo apt-get install -y libhdf5-dev libpng-dev libfreetype6-dev

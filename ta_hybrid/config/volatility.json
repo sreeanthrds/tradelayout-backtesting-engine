@@ -1,0 +1,162 @@
+{
+    "category": "Volatility Indicators",
+    "indicators": [
+        {
+            "name": "ATR",
+            "function_name": "atr",
+            "display_name": "Average True Range",
+            "description": "Measures market volatility",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["ATR"]
+        },
+        {
+            "name": "NATR",
+            "function_name": "natr",
+            "display_name": "Normalized ATR",
+            "description": "ATR normalized as percentage",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["NATR"]
+        },
+        {
+            "name": "BBANDS",
+            "function_name": "bbands",
+            "display_name": "Bollinger Bands",
+            "description": "Volatility bands around moving average",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Moving average period"
+                },
+                {
+                    "name": "std",
+                    "type": "number",
+                    "label": "Standard Deviation",
+                    "default": 2,
+                    "description": "Number of standard deviations"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["BBL", "BBM", "BBU", "BBB", "BBP"]
+        },
+        {
+            "name": "KC",
+            "function_name": "kc",
+            "display_name": "Keltner Channels",
+            "description": "Volatility-based bands using ATR",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "EMA period"
+                },
+                {
+                    "name": "scalar",
+                    "type": "number",
+                    "label": "ATR Multiplier",
+                    "default": 2,
+                    "description": "ATR multiplier"
+                }
+            ],
+            "outputs": ["KCL", "KCB", "KCU"]
+        },
+        {
+            "name": "DONCHIAN",
+            "function_name": "donchian",
+            "display_name": "Donchian Channels",
+            "description": "Price channels based on highest high and lowest low",
+            "parameters": [
+                {
+                    "name": "lower_length",
+                    "type": "number",
+                    "label": "Lower Length",
+                    "default": 20,
+                    "description": "Lower channel period"
+                },
+                {
+                    "name": "upper_length",
+                    "type": "number",
+                    "label": "Upper Length",
+                    "default": 20,
+                    "description": "Upper channel period"
+                }
+            ],
+            "outputs": ["DCL", "DCM", "DCU"]
+        },
+        {
+            "name": "STDEV",
+            "function_name": "stdev",
+            "display_name": "Standard Deviation",
+            "description": "Measures price volatility",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["STDEV"]
+        },
+        {
+            "name": "VARIANCE",
+            "function_name": "variance",
+            "display_name": "Variance",
+            "description": "Statistical variance of price",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["VAR"]
+        }
+    ]
+}

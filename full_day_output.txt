@@ -1,0 +1,185 @@
+
+====================================================================================================
+🚀 FULL DAY BACKTEST: 2024-10-01 (09:15 to 15:30)
+====================================================================================================
+
+Backtest Date: 2024-10-01
+Trading Hours: 09:15:00 to 15:30:00
+
+1️⃣  Initializing engine...
+2️⃣  Loading strategy...
+
+================================================================================
+📊 STRATEGY METADATA: My New Strategy13
+================================================================================
+Strategy ID    : 4a7a1a31-e209-4b23-891a-3899fb8e4c28
+User ID        : user_2yfjTGEKjL7XkklQyBaMP6SN2Lc
+Broker         : Backtesting
+
+📈 INSTRUMENT CONFIGURATIONS:
+   NIFTY:1m → 1 indicators
+      - ema(21,close)
+   NIFTY:3m → 1 indicators
+      - rsi(14,close)
+
+🎯 OPTION PATTERNS:
+   NIFTY:W0:ATM:PE (from node: entry-4)
+   NIFTY:W0:ATM:CE (from node: entry-3)
+
+🔧 NODE CONFIGURATION:
+   Total Nodes : 13
+   Total Edges : 13
+
+💾 CACHE REQUIREMENTS:
+   Total Keys  : 4
+      - NIFTY:1m
+      - NIFTY:3m
+      - option:NIFTY:W0:ATM:CE
+      - option:NIFTY:W0:ATM:PE
+================================================================================
+
+   ✅ My New Strategy13
+3️⃣  Building metadata...
+4️⃣  Initializing data components...
+
+🔧 Initializing components...
+   ✅ Components initialized
+[DEBUG] Created candle builder for 3m
+[DEBUG] Created candle builder for 1m
+[DEBUG] Total candle builders: 2, timeframes: ['3m', '1m']
+5️⃣  Setting up processor...
+
+🔧 Initializing centralized components...
+   ✅ Centralized components initialized
+
+📡 Subscribing strategy to cache...
+   ✅ Strategy subscribed: user_2yfjTGEKjL7XkklQyBaMP6SN2Lc_4a7a1a31-e209-4b23-891a-3899fb8e4c28_1764334452
+   ✅ Strategy synced immediately
+6️⃣  Loading ticks...
+   ✅ Loaded 44,260 ticks
+
+====================================================================================================
+⚡ PROCESSING TICKS
+====================================================================================================
+
+Processing full trading day...
+[DEBUG DataManager] Processing tick 1: NIFTY @ 25821.35, builders: 2
+[DEBUG DataManager] Processing tick 2: NIFTY @ 25832.0, builders: 2
+[DEBUG DataManager] Processing tick 3: NIFTY @ 25788.05, builders: 2
+[DEBUG DataManager] Processing tick 4: NIFTY @ 25820.2, builders: 2
+[DEBUG DataManager] Processing tick 5: NIFTY @ 25841.9, builders: 2
+[DEBUG DataManager] ✅ Candle completed: NIFTY 1m at 2024-10-01 09:15:00
+[DEBUG DataManager] Adding candle to buffer: NIFTY:1m
+
+🔍 [F&O CHECK] Trading instrument: NIFTY:W0:ATM:CE
+   Is dynamic F&O? True
+   ✅ Entering F&O resolution block...
+
+🔍 [OPTION LOAD CHECK]
+   data_manager exists? True
+   ':OPT:' in resolved_instrument? True
+   resolved_instrument = NIFTY:2024-10-03:OPT:25900:CE
+
+🔄 Loading option contract: NIFTY:2024-10-03:OPT:25900:CE
+
+🔄 Loading option ticks from ClickHouse...
+   Contract: NIFTY:2024-10-03:OPT:25900:CE
+   ClickHouse symbol: NIFTY03OCT2425900CE
+   With NFO suffix: NIFTY03OCT2425900CE.NFO
+   From: 2024-10-01 09:16:54
+   ✅ Loaded 17,364 option ticks
+   First LTP: ₹106.20 at 2024-10-01 09:16:54
+   ✅ Option LTP loaded: ₹106.20
+
+🔍 [ENTRY DEBUG] Checking LTP for resolved instrument: NIFTY:2024-10-03:OPT:25900:CE
+   Available keys in ltp_store: ['NIFTY', 'NIFTY:2024-10-03:OPT:25900:CE']
+   ✅ Found LTP for NIFTY:2024-10-03:OPT:25900:CE: 106.2
+✅ Order placed successfully. order_id=ENTRY_entry-3_20251128_182413, mode=backtesting
+🟢 BACKTESTING MODE DETECTED - Filling immediately
+✅ POSITION STORED: entry-3-pos1
+   Symbol: NIFTY:2024-10-03:OPT:25900:CE
+   Quantity: 1
+   Entry Price: 106.20
+[DEBUG DataManager] ✅ Candle completed: NIFTY 1m at 2024-10-01 09:16:00
+[DEBUG DataManager] Adding candle to buffer: NIFTY:1m
+   ⏰ 10:00 - Processed 5,339 ticks
+
+🔍 [F&O CHECK] Trading instrument: NIFTY:W0:ATM:PE
+   Is dynamic F&O? True
+   ✅ Entering F&O resolution block...
+
+🔍 [OPTION LOAD CHECK]
+   data_manager exists? True
+   ':OPT:' in resolved_instrument? True
+   resolved_instrument = NIFTY:2024-10-03:OPT:25800:PE
+
+🔄 Loading option contract: NIFTY:2024-10-03:OPT:25800:PE
+
+🔄 Loading option ticks from ClickHouse...
+   Contract: NIFTY:2024-10-03:OPT:25800:PE
+   ClickHouse symbol: NIFTY03OCT2425800PE
+   With NFO suffix: NIFTY03OCT2425800PE.NFO
+   From: 2024-10-01 10:30:41
+   ✅ Loaded 11,856 option ticks
+   First LTP: ₹97.20 at 2024-10-01 10:30:42
+   ✅ Option LTP loaded: ₹97.20
+
+🔍 [ENTRY DEBUG] Checking LTP for resolved instrument: NIFTY:2024-10-03:OPT:25800:PE
+   Available keys in ltp_store: ['NIFTY', 'NIFTY:2024-10-03:OPT:25900:CE', 'NIFTY:2024-10-03:OPT:25800:PE']
+   ✅ Found LTP for NIFTY:2024-10-03:OPT:25800:PE: 97.2
+✅ Order placed successfully. order_id=ENTRY_entry-4_20251128_183014, mode=backtesting
+🟢 BACKTESTING MODE DETECTED - Filling immediately
+✅ POSITION STORED: entry-4-pos1
+   Symbol: NIFTY:2024-10-03:OPT:25800:PE
+   Quantity: 1
+   Entry Price: 97.20
+   ⏰ 11:00 - Processed 12,464 ticks
+   ⏰ 12:00 - Processed 19,536 ticks
+   ⏰ 13:00 - Processed 26,603 ticks
+   ⏰ 14:00 - Processed 33,646 ticks
+   ⏰ 15:00 - Processed 40,710 ticks
+
+   ✅ All 44,260 ticks processed
+
+====================================================================================================
+📊 BACKTEST STATISTICS
+====================================================================================================
+
+⏱️  Execution Period:
+   Start: 2024-10-01 09:15:00
+   End: 2024-10-01 15:30:00
+   Total Ticks: 44,260
+
+📊 Cache State:
+   NIFTY:1m: 20 candles
+      Latest: 2024-10-01 15:29:00 | Close: 25812.55
+   NIFTY:3m: 20 candles
+      Latest: 2024-10-01 15:27:00 | Close: 25812.55
+
+💰 Current Prices:
+   NIFTY: 25809.35
+   NIFTY:2024-10-03:OPT:25800:PE: 61.75
+   NIFTY:2024-10-03:OPT:25900:CE: 39.80
+
+🎯 Final Node States:
+
+   Strategy: Unknown
+   Total Nodes: 12
+   Active: 3 | Pending: 0 | Inactive: 9
+
+   🟢 Active Nodes:
+      - square-off-1
+      - exit-condition-1
+      - exit-condition-2
+
+====================================================================================================
+📈 POSITIONS SUMMARY
+====================================================================================================
+
+   ℹ️  Check console output above for:
+      - '✅ POSITION STORED' messages (entries)
+      - '✅ POSITION CLOSED' messages (exits)
+
+====================================================================================================
+✅ FULL DAY BACKTEST COMPLETE
+====================================================================================================

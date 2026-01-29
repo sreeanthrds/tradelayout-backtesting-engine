@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: tradelayout-clickhouse
+    hostname: clickhouse
+    restart: unless-stopped
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+      - ./config/clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-tradelayout}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+    deploy:
+      resources:
+        limits:
+          memory: ${CLICKHOUSE_MEMORY_LIMIT:-1.5G}
+          cpus: '${CLICKHOUSE_CPU_LIMIT:-1.5}'
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tradelayout
+
+  redis:
+    image: redis:7-alpine
+    container_name: tradelayout-redis
+    hostname: redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-512M}
+          cpus: '${REDIS_CPU_LIMIT:-0.5}'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tradelayout
+
+volumes:
+  clickhouse-data:
+    driver: local
+  clickhouse-logs:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  tradelayout:
+    driver: bridge

@@ -1,0 +1,248 @@
+{
+    "category": "Advanced Trend",
+    "indicators": [
+        {
+            "name": "ALLIGATOR",
+            "function_name": "alligator",
+            "display_name": "Alligator",
+            "description": "Bill Williams Alligator indicator",
+            "parameters": [
+                {
+                    "name": "jaw_length",
+                    "type": "number",
+                    "label": "Jaw Length",
+                    "default": 13,
+                    "description": "Jaw (blue line) period"
+                },
+                {
+                    "name": "teeth_length",
+                    "type": "number",
+                    "label": "Teeth Length",
+                    "default": 8,
+                    "description": "Teeth (red line) period"
+                },
+                {
+                    "name": "lips_length",
+                    "type": "number",
+                    "label": "Lips Length",
+                    "default": 5,
+                    "description": "Lips (green line) period"
+                }
+            ],
+            "outputs": ["ALG_JAW", "ALG_TEETH", "ALG_LIPS"]
+        },
+        {
+            "name": "AMAT",
+            "function_name": "amat",
+            "display_name": "Archer Moving Averages Trends",
+            "description": "Trend strength indicator",
+            "parameters": [
+                {
+                    "name": "fast",
+                    "type": "number",
+                    "label": "Fast Period",
+                    "default": 8,
+                    "description": "Fast MA period"
+                },
+                {
+                    "name": "slow",
+                    "type": "number",
+                    "label": "Slow Period",
+                    "default": 21,
+                    "description": "Slow MA period"
+                },
+                {
+                    "name": "lookback",
+                    "type": "number",
+                    "label": "Lookback",
+                    "default": 2,
+                    "description": "Lookback period"
+                }
+            ],
+            "outputs": ["AMATe", "AMATl"]
+        },
+        {
+            "name": "CHOP",
+            "function_name": "chop",
+            "display_name": "Choppiness Index",
+            "description": "Measures market choppiness",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 14,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["CHOP"]
+        },
+        {
+            "name": "CKSP",
+            "function_name": "cksp",
+            "display_name": "Chande Kroll Stop",
+            "description": "Volatility-based stop loss",
+            "parameters": [
+                {
+                    "name": "p",
+                    "type": "number",
+                    "label": "Period",
+                    "default": 10,
+                    "description": "ATR period"
+                },
+                {
+                    "name": "x",
+                    "type": "number",
+                    "label": "Multiplier",
+                    "default": 1,
+                    "description": "ATR multiplier"
+                },
+                {
+                    "name": "q",
+                    "type": "number",
+                    "label": "Smoothing",
+                    "default": 9,
+                    "description": "Smoothing period"
+                }
+            ],
+            "outputs": ["CKSPl", "CKSPs"]
+        },
+        {
+            "name": "DECAY",
+            "function_name": "decay",
+            "display_name": "Linear Decay",
+            "description": "Linear decay over period",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 5,
+                    "description": "Decay period"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["LDECAY"]
+        },
+        {
+            "name": "DPO",
+            "function_name": "dpo",
+            "display_name": "Detrended Price Oscillator",
+            "description": "Removes trend from price",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 20,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["DPO"]
+        },
+        {
+            "name": "HT_TRENDLINE",
+            "function_name": "ht_trendline",
+            "display_name": "Hilbert Transform Trendline",
+            "description": "Instantaneous trendline",
+            "parameters": [
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["HT_TRENDLINE"]
+        },
+        {
+            "name": "QSTICK",
+            "function_name": "qstick",
+            "display_name": "Qstick",
+            "description": "Quantifies candlestick patterns",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 10,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["QS"]
+        },
+        {
+            "name": "TTM_TREND",
+            "function_name": "ttm_trend",
+            "display_name": "TTM Trend",
+            "description": "TTM trend indicator",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 6,
+                    "description": "Number of periods"
+                }
+            ],
+            "outputs": ["TTM_TREND"]
+        },
+        {
+            "name": "VHF",
+            "function_name": "vhf",
+            "display_name": "Vertical Horizontal Filter",
+            "description": "Identifies trending vs ranging markets",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 28,
+                    "description": "Number of periods"
+                },
+                {
+                    "name": "price_field",
+                    "type": "dropdown",
+                    "label": "Price Field",
+                    "options": ["close", "open", "high", "low"],
+                    "default": "close",
+                    "description": "Price field to use"
+                }
+            ],
+            "outputs": ["VHF"]
+        },
+        {
+            "name": "ZIGZAG",
+            "function_name": "zigzag",
+            "display_name": "ZigZag",
+            "description": "Filters price movements",
+            "parameters": [
+                {
+                    "name": "length",
+                    "type": "number",
+                    "label": "Length",
+                    "default": 5,
+                    "description": "Percentage threshold"
+                }
+            ],
+            "outputs": ["ZZ"]
+        }
+    ]
+}
